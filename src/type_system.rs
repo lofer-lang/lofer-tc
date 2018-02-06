@@ -1,7 +1,5 @@
-#![allow(dead_code)]
-
-#[derive(Clone)]
-enum Expression {
+#[derive(Clone, PartialEq, Debug)]
+pub enum Expression {
     Variable(usize), // variables should be indexed from the end of the list?
     IntroPoint,
     IntroTT,
@@ -32,7 +30,7 @@ enum Expression {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-enum Type {
+pub enum Type {
     Void,
     Unit,
     Bool,
@@ -47,11 +45,11 @@ enum Type {
     // Universes needed for type families and hence type dependence
 }
 
-fn type_check(context: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
+pub fn type_check(ctx: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
     use self::Expression::*;
     match *expr {
         Variable(i) => {
-            Ok(context[context.len() - i].clone())
+            Ok(ctx[ctx.len() - i].clone())
         },
 
         IntroPoint => {
@@ -62,10 +60,10 @@ fn type_check(context: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
             Ok(Type::Bool)
         },
         ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
-            let condition_type = type_check(context, condition)?;
+            let condition_type = type_check(ctx, condition)?;
             if let Type::Bool = condition_type {
-                let tt_check = type_check(context, tt_branch)?;
-                let ff_check = type_check(context, ff_branch)?;
+                let tt_check = type_check(ctx, tt_branch)?;
+                let ff_check = type_check(ctx, ff_branch)?;
                 if tt_check == ff_check {
                     Ok(tt_check)
                 } else {
@@ -78,15 +76,15 @@ fn type_check(context: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
 
         IntroLambda { ref variable, ref body } => {
             let variable_clone = (**variable).clone();
-            context.push(variable_clone);
-            let maybe_codomain = type_check(context, body);
-            let domain = Box::new(context.pop().unwrap());
+            ctx.push(variable_clone);
+            let maybe_codomain = type_check(ctx, body);
+            let domain = Box::new(ctx.pop().unwrap());
             let codomain = Box::new(maybe_codomain?);
             Ok(Type::Pi { domain, codomain })
         },
         ElimApplication { ref function, ref argument } => {
-            let fun_type = type_check(context, function)?;
-            let arg_type = type_check(context, argument)?;
+            let fun_type = type_check(ctx, function)?;
+            let arg_type = type_check(ctx, argument)?;
             if let Type::Pi { domain, codomain } = fun_type {
                 if arg_type == *domain {
                     Ok(*codomain)
@@ -99,15 +97,15 @@ fn type_check(context: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
         },
 
         IntroPair { ref fst, ref snd } => {
-            let fst_type = type_check(context, fst)?;
-            context.push(fst_type);
-            let maybe_snd_type = type_check(context, snd);
-            let fst_type = Box::new(context.pop().unwrap());
+            let fst_type = type_check(ctx, fst)?;
+            ctx.push(fst_type);
+            let maybe_snd_type = type_check(ctx, snd);
+            let fst_type = Box::new(ctx.pop().unwrap());
             let snd_type = Box::new(maybe_snd_type?);
             Ok(Type::Sigma { fst_type, snd_type })
         },
         ElimFst { ref pair } => {
-            let pair_type = type_check(context, pair)?;
+            let pair_type = type_check(ctx, pair)?;
             if let Type::Sigma { fst_type, .. } = pair_type {
                 Ok(*fst_type)
             } else {
@@ -115,7 +113,7 @@ fn type_check(context: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
             }
         },
         ElimSnd { ref pair } => {
-            let pair_type = type_check(context, pair)?;
+            let pair_type = type_check(ctx, pair)?;
             if let Type::Sigma { snd_type, .. } = pair_type {
                 Ok(*snd_type)
             } else {
@@ -133,27 +131,39 @@ mod tests {
     #[test]
     fn discrete_type_checking() {
         let mut ctx = Vec::new();
+        // (): Unit
         assert_eq!(Ok(Type::Unit),
             type_check(&mut ctx, &Expression::IntroPoint));
+        // tt: Bool
         assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &Expression::IntroTT));
+        // ff: Bool
         assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &Expression::IntroFF));
+
+        // if tt then () else ()
         let branch_unit = Expression::ElimIf {
             condition: Box::new(Expression::IntroTT),
             tt_branch: Box::new(Expression::IntroPoint),
             ff_branch: Box::new(Expression::IntroPoint),
         };
+        // Unit
         assert_eq!(Ok(Type::Unit), type_check(&mut ctx, &branch_unit));
+
+        // if () then tt else tt
         let branch_bad_cond = Expression::ElimIf {
             condition: Box::new(Expression::IntroPoint),
             tt_branch: Box::new(Expression::IntroTT),
             ff_branch: Box::new(Expression::IntroTT),
         };
+        // Error
         assert_eq!(Err(()), type_check(&mut ctx, &branch_bad_cond));
+
+        // if tt then tt else ()
         let branch_unmatching = Expression::ElimIf {
             condition: Box::new(Expression::IntroTT),
             tt_branch: Box::new(Expression::IntroTT),
             ff_branch: Box::new(Expression::IntroPoint),
         };
+        // Error
         assert_eq!(Err(()), type_check(&mut ctx, &branch_unmatching));
     }
 
@@ -161,10 +171,12 @@ mod tests {
     fn function_type_checking() {
         let mut ctx = Vec::new();
 
+        // \x: Unit -> x
         let expr = Expression::IntroLambda {
             variable: Box::new(Type::Unit),
             body: Box::new(Expression::Variable(1)),
         };
+        // Unit -> Unit
         let expected = Type::Pi {
             domain: Box::new(Type::Unit),
             codomain: Box::new(Type::Unit),
@@ -172,6 +184,7 @@ mod tests {
         let actual = type_check(&mut ctx, &expr);
         assert_eq!(Ok(expected), actual);
 
+        // (\x: Bool -> ()) tt
         let expr = Expression::ElimApplication {
             function: Box::new(Expression::IntroLambda {
                 variable: Box::new(Type::Bool),
@@ -179,10 +192,12 @@ mod tests {
             }),
             argument: Box::new(Expression::IntroTT),
         };
+        // Unit
         let expected = Type::Unit;
         let actual = type_check(&mut ctx, &expr);
         assert_eq!(Ok(expected), actual);
 
+        // (\x: Bool -> ()) ()
         let expr = Expression::ElimApplication {
             function: Box::new(Expression::IntroLambda {
                 variable: Box::new(Type::Bool),
@@ -190,14 +205,17 @@ mod tests {
             }),
             argument: Box::new(Expression::IntroPoint),
         };
+        // Error
         let expected = ();
         let actual = type_check(&mut ctx, &expr);
         assert_eq!(Err(expected), actual);
 
+        // () tt
         let expr = Expression::ElimApplication {
             function: Box::new(Expression::IntroPoint),
             argument: Box::new(Expression::IntroTT),
         };
+        // Error
         let expected = ();
         let actual = type_check(&mut ctx, &expr);
         assert_eq!(Err(expected), actual);
@@ -207,10 +225,12 @@ mod tests {
     fn pair_type_checking() {
         let mut ctx = Vec::new();
 
+        // <(), tt>
         let expr = Expression::IntroPair {
             fst: Box::new(Expression::IntroPoint),
             snd: Box::new(Expression::IntroTT),
         };
+        // Unit * Bool
         let expected = Type::Sigma {
             fst_type: Box::new(Type::Unit),
             snd_type: Box::new(Type::Bool),
@@ -218,24 +238,32 @@ mod tests {
         let actual = type_check(&mut ctx, &expr);
         assert_eq!(Ok(expected), actual);
 
+        // p1 <(), tt>
         let fst = Expression::ElimFst {
             pair: Box::new(expr.clone()),
         };
+        // Unit
         assert_eq!(Ok(Type::Unit), type_check(&mut ctx, &fst));
 
+        // p2 <(), tt>
         let snd = Expression::ElimSnd {
             pair: Box::new(expr.clone()),
         };
+        // Bool
         assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &snd));
 
+        // p1 ()
         let fst = Expression::ElimFst {
             pair: Box::new(Expression::IntroPoint),
         };
+        // Error
         assert_eq!(Err(()), type_check(&mut ctx, &fst));
 
+        // p2 ()
         let snd = Expression::ElimSnd {
             pair: Box::new(Expression::IntroPoint),
         };
+        // Error
         assert_eq!(Err(()), type_check(&mut ctx, &snd));
     }
 
@@ -244,10 +272,13 @@ mod tests {
     fn strange_diagonal() {
         let mut ctx = Vec::new();
 
+        // can't be represented exactly like this
+        // but equivalent to <tt, tt>
         let expr = Expression::IntroPair {
             fst: Box::new(Expression::IntroTT),
             snd: Box::new(Expression::Variable(1)),
         };
+        // Bool -> Bool
         let expected = Type::Sigma {
             fst_type: Box::new(Type::Bool),
             snd_type: Box::new(Type::Bool),
