@@ -1,67 +1,57 @@
-use std::mem;
+use type_system::{Expression};
 
-use type_system;
-use type_system::{Type, Expression};
-
-// TODO is ctx needed?
-fn reduce(ctx: &mut Vec<Type>, expr: &mut Expression) {
+fn reduce(expr: &Expression) -> Expression {
     use type_system::Expression::*;
-    while let Some(reduction) = match *expr {
-        Variable(_) | IntroPoint | IntroTT | IntroFF => None,
-        IntroPair { ref mut fst, ref mut snd } => {
-            reduce(ctx, fst);
-            let maybe_fst_type = type_system::type_check(ctx, fst);
-            let fst_type = maybe_fst_type
-                .expect("Type error when substituting");
-            ctx.push(fst_type);
+    match *expr {
+        Variable(_) | IntroPoint | IntroTT | IntroFF => expr.clone(),
+        ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
+            let condition = box_reduce(condition);
+            if let IntroTT = *condition {
+                reduce(tt_branch)
+            } else if let IntroFF = *condition {
+                reduce(ff_branch)
+            } else {
+                let tt_branch = box_reduce(tt_branch);
+                let ff_branch = box_reduce(ff_branch);
+                ElimIf { condition, tt_branch, ff_branch }
+            }
+        },
+
+        IntroPair { ref fst, ref snd } => {
+            let fst = box_reduce(fst);
             // is there some way of removing this line?
-            **snd = substitute(snd, 1, fst, false);
-            reduce(ctx, snd);
-            ctx.pop();
-
-            None
+            // since we substitute during the p2/snd eliminator anyway
+            // in fact sigma variables only matter for type checking
+            let snd = substitute(snd, 1, &fst, false);
+            let snd = box_reduce(&snd);
+            IntroPair { fst, snd }
         },
-
-        ElimIf { ref mut condition, ref mut tt_branch, ref mut ff_branch } => {
-            reduce(ctx, condition);
-            if let IntroTT = **condition {
-                Some(mem::replace(&mut **tt_branch, IntroPoint))
-            } else if let IntroFF = **condition {
-                Some(mem::replace(&mut **ff_branch, IntroPoint))
+        ElimFst { ref pair } => {
+            let pair = reduce(pair);
+            if let IntroPair { fst, .. } = pair {
+                *fst
             } else {
-                reduce(ctx, tt_branch);
-                reduce(ctx, ff_branch);
-                None
+                pair
             }
         },
-        ElimFst { ref mut pair } => {
-            reduce(ctx, pair);
-            if let IntroPair { ref mut fst, .. } = **pair {
-                Some(mem::replace(&mut **fst, IntroPoint))
+        ElimSnd { ref pair } => {
+            let pair = reduce(pair);
+            if let IntroPair { fst, snd } = pair {
+                // mainly to eliminate the variable
+                let snd = substitute(&snd, 1, &fst, true);
+                reduce(&snd)
             } else {
-                None
-            }
-        },
-        ElimSnd { ref mut pair } => {
-            reduce(ctx, pair);
-            // rust doesn't yet like disjoint mutable reborrows on boxes
-            let pair = &mut **pair;
-            if let IntroPair { ref mut fst, ref mut snd } = *pair {
-                Some(substitute(snd, 1, fst, true))
-            } else {
-                None
+                pair
             }
         },
         _ => unimplemented!(),
-    } {
-        *expr = reduction;
     }
 }
 
-fn box_substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
+fn box_reduce(expr: &Expression)
     -> Box<Expression>
 {
-    Box::new(substitute(expr, i, value, elim))
+    Box::new(reduce(expr))
 }
 
 fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
@@ -122,96 +112,122 @@ fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
     }
 }
 
+fn box_substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
+    -> Box<Expression>
+{
+    Box::new(substitute(expr, i, value, elim))
+}
+
 #[cfg(test)]
 mod tests {
     use type_system::Expression::*;
 
     use super::*;
 
+    macro_rules! irreducible {
+        ($before: expr) => {
+            let before = $before;
+            let after = reduce(&before);
+            assert_eq!(before, after);
+        }
+    }
+
+    macro_rules! reduces {
+        ($before: expr => $after: expr) => {
+            let before = $before;
+            let after = reduce(&before);
+            assert_eq!(after, $after);
+        }
+    }
+
     #[test]
     fn substitution() {
+        // daunting
+        unimplemented!();
+    }
+
+    #[test]
+    fn irreducible_intros() {
         unimplemented!();
     }
 
     #[test]
     fn reduce_bool() {
-        let mut ctx = Vec::new();
+        reduces!(
+            // if tt then tt else ff
+            ElimIf {
+                condition: Box::new(IntroTT),
+                tt_branch: Box::new(IntroTT),
+                ff_branch: Box::new(IntroFF),
+            }
+        =>
+            // tt
+            IntroTT
+        );
 
-        // if tt then tt else ff
-        let mut expr = ElimIf {
-            condition: Box::new(IntroTT),
-            tt_branch: Box::new(IntroTT),
-            ff_branch: Box::new(IntroFF),
-        };
-        reduce(&mut ctx, &mut expr);
-        // tt
-        assert_eq!(expr, IntroTT);
+        reduces!(
+            // if ff then tt else ff
+            ElimIf {
+                condition: Box::new(IntroFF),
+                tt_branch: Box::new(IntroTT),
+                ff_branch: Box::new(IntroFF),
+            }
+        =>
+            // ff
+            IntroFF
+        );
 
-        // if ff then tt else ff
-        let mut expr = ElimIf {
-            condition: Box::new(IntroFF),
-            tt_branch: Box::new(IntroTT),
-            ff_branch: Box::new(IntroFF),
-        };
-        reduce(&mut ctx, &mut expr);
-        // ff
-        assert_eq!(expr, IntroFF);
-
-        // if x then tt else ff
-        let before = ElimIf {
-            condition: Box::new(Variable(1)),
-            tt_branch: Box::new(IntroTT),
-            ff_branch: Box::new(IntroFF),
-        };
-        let mut after = before.clone();
-        reduce(&mut ctx, &mut after);
-        // irreducible
-        assert_eq!(before, after);
+        irreducible!(
+            // if x then tt else ff
+            ElimIf {
+                condition: Box::new(Variable(1)),
+                tt_branch: Box::new(IntroTT),
+                ff_branch: Box::new(IntroFF),
+            }
+        );
     }
 
     #[test]
     fn reduce_pair() {
-        let mut ctx = Vec::new();
+        reduces!(
+            // p1 <tt, ff>
+            ElimFst {
+                pair: Box::new(IntroPair {
+                    fst: Box::new(IntroTT),
+                    snd: Box::new(IntroFF),
+                }),
+            }
+        =>
+            // tt
+            IntroTT
+        );
 
-        // p1 <tt, ff>
-        let mut expr = ElimFst {
-            pair: Box::new(IntroPair {
-                fst: Box::new(IntroTT),
-                snd: Box::new(IntroFF),
-            }),
-        };
-        reduce(&mut ctx, &mut expr);
-        // tt
-        assert_eq!(expr, IntroTT);
+        reduces!(
+            // p2 <tt, ff>
+            ElimSnd {
+                pair: Box::new(IntroPair {
+                    fst: Box::new(IntroTT),
+                    snd: Box::new(IntroFF),
+                }),
+            }
+        =>
+            //ff
+            IntroFF
+        );
 
-        // p2 <tt, ff>
-        let mut expr = ElimSnd {
-            pair: Box::new(IntroPair {
-                fst: Box::new(IntroTT),
-                snd: Box::new(IntroFF),
-            }),
-        };
-        reduce(&mut ctx, &mut expr);
-        // ff
-        assert_eq!(expr, IntroFF);
+        irreducible!(
+            // p1 x
+            ElimFst {
+                pair: Box::new(Variable(1)),
+            }
+        );
 
-        // p1 x
-        let before = ElimFst {
-            pair: Box::new(Variable(1)),
-        };
-        let mut after = before.clone();
-        reduce(&mut ctx, &mut after);
-        // irreducible
-        assert_eq!(before, after);
-
-        // p2 x
-        let before = ElimSnd {
-            pair: Box::new(Variable(1)),
-        };
-        let mut after = before.clone();
-        reduce(&mut ctx, &mut after);
-        // irreducible
-        assert_eq!(before, after);
+        irreducible!(
+            // p2 x
+            ElimSnd {
+                pair: Box::new(Variable(1)),
+            }
+        );
     }
 }
 
