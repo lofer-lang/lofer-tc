@@ -159,3 +159,67 @@ Whether expressions are actually treated as poly-universal, or there is simply
 a `promote` primitive that bumps an expression up one, is an implementation
 detail.
 
+Universal Induction
+-------------------
+
+This is the sort of territory that might allow for horribly inconsistent
+constructions, but certain concepts seem to lend themselves to induction along
+the type of all types.
+
+An example is the observational definition of equality:
+```
+eq (t: U_n) = match t {
+  Void => Void,
+  Unit => \_->\_->Unit,
+  Bool => \x->\y->
+    if x then
+      (if y then Unit else Void)
+    else
+      (if y then Void else Unit),
+  Sigma(a: t_i, t_f a) => \x->\y->
+    Sigma(eq t_i (p1 x) (p1 y), eq (t_f (p1 x)) (p2 x) (p2 y)),
+  Pi(a: t_i, t_f a) => \f1->\f2->
+    Pi(x: t_i, eq (t_f x) (f1 x) (f2 x)),
+}
+```
+
+This can then be used in any universe, assuming that `U_1` is treated as a
+normal coinductive type defined like any other in `U_2`.
+
+Imperative Type System
+======================
+
+The imperative type system is just an inductive type, akin to saying
+
+A data structure is either:
+ - a byte,
+ - a memory adress,
+ - two structures in sequence, or
+ - one structure plus a safety constraint.
+
+Similarly the type system for procedures is akin to
+
+A procedure either:
+ - does nothing,
+ - composes two procedures in order,
+ - manipulates data layout without changing contents,
+ - applies a procedure alongside an extra unchanged variable,
+ - applies a primitive operation such as reading, writing, arithmetic, etc.
+
+The proof system would allow you to write functional objects representing facts
+about the contents of variables.
+This would be enforced by the primitive procedures, e.g. addition of even
+numbers:
+```
+value_is_even = (* something *).
+evens_add_to_evens = (* some number theory proof *).
+even_byte = Constraint Byte value_is_even.
+add_even: Proc (Pair even_byte even_byte) even_byte
+add_even = Add (evens_add_to_evens).
+```
+
+It is currently uncertain how the "proof that a structure contains a value"
+should work.
+
+It is even more uncertain how proofs about dynamic memory locations should
+work!
