@@ -22,6 +22,18 @@ fn reduce(expr: &Expression) -> Expression {
             let body = box_reduce(body);
             IntroLambda { variable, body }
         },
+        ElimApplication { ref function, ref argument } => {
+            let function = reduce(function);
+            if let IntroLambda { body, .. } = function {
+                let result = substitute(&body, 1, argument, true);
+                // ooo a tail call
+                reduce(&result)
+            } else {
+                let function = Box::new(function);
+                let argument = box_reduce(argument);
+                ElimApplication { function, argument }
+            }
+        },
 
         IntroPair { ref fst, ref snd } => {
             let fst = box_reduce(fst);
@@ -52,7 +64,6 @@ fn reduce(expr: &Expression) -> Expression {
                 ElimSnd { pair }
             }
         },
-        _ => unimplemented!(),
     }
 }
 
@@ -212,6 +223,49 @@ mod tests {
                 condition: Box::new(Variable(1)),
                 tt_branch: Box::new(IntroTT),
                 ff_branch: Box::new(IntroFF),
+            }
+        );
+    }
+
+    #[test]
+    fn reduce_lambda() {
+        reduces!(
+            // (\x -> x) tt
+            ElimApplication {
+                function: Box::new(IntroLambda {
+                    variable: Box::new(Type::Bool),
+                    body: Box::new(Variable(1)),
+                }),
+                argument: Box::new(IntroTT),
+            }
+        =>
+            // tt
+            IntroTT
+        );
+
+        reduces!(
+            // (\x -> if x then ff else tt) tt
+            ElimApplication {
+                function: Box::new(IntroLambda {
+                    variable: Box::new(Type::Bool),
+                    body: Box::new(ElimIf {
+                        condition: Box::new(Variable(1)),
+                        tt_branch: Box::new(IntroFF),
+                        ff_branch: Box::new(IntroTT),
+                    }),
+                }),
+                argument: Box::new(IntroTT),
+            }
+        =>
+            // ff
+            IntroFF
+        );
+
+        irreducible!(
+            // x ()
+            ElimApplication {
+                function: Box::new(Variable(1)),
+                argument: Box::new(IntroPoint),
             }
         );
     }
