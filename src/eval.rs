@@ -17,6 +17,12 @@ fn reduce(expr: &Expression) -> Expression {
             }
         },
 
+        IntroLambda { ref variable, ref body } => {
+            let variable = variable.clone();
+            let body = box_reduce(body);
+            IntroLambda { variable, body }
+        },
+
         IntroPair { ref fst, ref snd } => {
             let fst = box_reduce(fst);
             // is there some way of removing this line?
@@ -31,7 +37,8 @@ fn reduce(expr: &Expression) -> Expression {
             if let IntroPair { fst, .. } = pair {
                 *fst
             } else {
-                pair
+                let pair = Box::new(pair);
+                ElimFst { pair }
             }
         },
         ElimSnd { ref pair } => {
@@ -41,7 +48,8 @@ fn reduce(expr: &Expression) -> Expression {
                 let snd = substitute(&snd, 1, &fst, true);
                 reduce(&snd)
             } else {
-                pair
+                let pair = Box::new(pair);
+                ElimSnd { pair }
             }
         },
         _ => unimplemented!(),
@@ -121,6 +129,7 @@ fn box_substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
 #[cfg(test)]
 mod tests {
     use type_system::Expression::*;
+    use type_system::Type;
 
     use super::*;
 
@@ -148,7 +157,27 @@ mod tests {
 
     #[test]
     fn irreducible_intros() {
-        unimplemented!();
+        irreducible!(
+            IntroPoint
+        );
+        irreducible!(
+            IntroTT
+        );
+        irreducible!(
+            IntroFF
+        );
+        irreducible!(
+            IntroLambda {
+                variable: Box::new(Type::Unit),
+                body: Box::new(IntroPoint),
+            }
+        );
+        irreducible!(
+            IntroPair {
+                fst: Box::new(IntroTT),
+                snd: Box::new(IntroFF),
+            }
+        );
     }
 
     #[test]
