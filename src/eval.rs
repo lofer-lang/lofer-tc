@@ -1,11 +1,16 @@
 use type_system::{Expression};
 
-fn reduce(expr: &Expression) -> Expression {
+pub fn reduce(expr: &Expression) -> Expression {
     use type_system::Expression::*;
     use type_system::expressions::*;
     match *expr {
         Variable(_) | IntroPoint | IntroTT | IntroFF => expr.clone(),
-        ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
+        ElimIf {
+            ref condition,
+            ref tt_branch,
+            ref ff_branch,
+            ref out_type,
+        } => {
             let condition = reduce(condition);
             if let IntroTT = condition {
                 reduce(tt_branch)
@@ -14,12 +19,13 @@ fn reduce(expr: &Expression) -> Expression {
             } else {
                 let tt_branch = reduce(tt_branch);
                 let ff_branch = reduce(ff_branch);
-                if_then_else(condition, tt_branch, ff_branch)
+                let out_type = reduce(out_type);
+                if_then_else(condition, tt_branch, ff_branch, out_type)
             }
         },
 
         IntroLambda { ref in_type, ref body } => {
-            let in_type = (**in_type).clone();  // TODO reduce() this
+            let in_type = reduce(in_type);
             let body = reduce(body);
             lambda(in_type, body)
         },
@@ -35,14 +41,15 @@ fn reduce(expr: &Expression) -> Expression {
             }
         },
 
-        IntroPair { ref fst, ref snd } => {
+        IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst = reduce(fst);
             // is there some way of removing this line?
             // since we substitute during the p2/snd eliminator anyway
             // in fact sigma variables only matter for type checking
             let snd = substitute(snd, 1, &fst, false);
             let snd = reduce(&snd);
-            pair(fst, snd)
+            let snd_type = reduce(snd_type);
+            pair(fst, snd, snd_type)
         },
         ElimFst { ref pair } => {
             let pair = reduce(pair);
@@ -54,7 +61,7 @@ fn reduce(expr: &Expression) -> Expression {
         },
         ElimSnd { ref pair } => {
             let pair = reduce(pair);
-            if let IntroPair { fst, snd } = pair {
+            if let IntroPair { fst, snd, .. } = pair {
                 // mainly to eliminate the variable
                 let snd = substitute(&snd, 1, &fst, true);
                 reduce(&snd)
@@ -62,10 +69,27 @@ fn reduce(expr: &Expression) -> Expression {
                 snd(pair)
             }
         },
+
+        IntroType(ref typ) => {
+            use type_system::Type::*;
+            match **typ {
+                Void | Unit | Bool | Universe => expr.clone(),
+                Pi { ref domain, ref codomain } => {
+                    let domain = reduce(domain);
+                    let codomain = reduce(codomain);
+                    pi(domain, codomain)
+                },
+                Sigma { ref fst_type, ref snd_type } => {
+                    let fst_type = reduce(fst_type);
+                    let snd_type = reduce(snd_type);
+                    sigma(fst_type, snd_type)
+                },
+            }
+        },
     }
 }
 
-fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
+pub fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
     -> Expression
 {
     use type_system::Expression::*;
@@ -84,15 +108,21 @@ fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
         IntroPoint | IntroTT | IntroFF => {
             expr.clone()
         },
-        ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
+        ElimIf {
+            ref condition,
+            ref tt_branch,
+            ref ff_branch,
+            ref out_type,
+        } => {
             let condition = substitute(condition, i, value, elim);
             let tt_branch = substitute(tt_branch, i, value, elim);
             let ff_branch = substitute(ff_branch, i, value, elim);
-            if_then_else(condition, tt_branch, ff_branch)
+            let out_type = substitute(out_type, i+1, value, elim);
+            if_then_else(condition, tt_branch, ff_branch, out_type)
         },
 
         IntroLambda { ref in_type, ref body } => {
-            let in_type = (**in_type).clone();
+            let in_type = substitute(in_type, i, value, elim);
             let body = substitute(body, i+1, value, elim);
             lambda(in_type, body)
         },
@@ -102,10 +132,11 @@ fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
             apply(function, argument)
         },
 
-        IntroPair { ref fst, ref snd } => {
+        IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst = substitute(fst, i, value, elim);
             let snd = substitute(snd, i+1, value, elim);
-            pair(fst, snd)
+            let snd_type = substitute(snd_type, i+1, value, elim);
+            pair(fst, snd, snd_type)
         },
         ElimFst { ref pair } => {
             let pair = substitute(pair, i, value, elim);
@@ -114,6 +145,23 @@ fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
         ElimSnd { ref pair } => {
             let pair = substitute(pair, i, value, elim);
             snd(pair)
+        },
+
+        IntroType(ref typ) => {
+            use type_system::Type::*;
+            match **typ {
+                Void | Unit | Bool | Universe => expr.clone(),
+                Pi { ref domain, ref codomain } => {
+                    let domain = substitute(domain, i, value, elim);
+                    let codomain = substitute(codomain, i+1, value, elim);
+                    pi(domain, codomain)
+                },
+                Sigma { ref fst_type, ref snd_type } => {
+                    let fst_type = substitute(fst_type, i, value, elim);
+                    let snd_type = substitute(snd_type, i+1, value, elim);
+                    sigma(fst_type, snd_type)
+                },
+            }
         },
     }
 }
