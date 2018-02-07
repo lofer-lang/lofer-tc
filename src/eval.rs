@@ -2,25 +2,26 @@ use type_system::{Expression};
 
 fn reduce(expr: &Expression) -> Expression {
     use type_system::Expression::*;
+    use type_system::expressions::*;
     match *expr {
         Variable(_) | IntroPoint | IntroTT | IntroFF => expr.clone(),
         ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
-            let condition = box_reduce(condition);
-            if let IntroTT = *condition {
+            let condition = reduce(condition);
+            if let IntroTT = condition {
                 reduce(tt_branch)
-            } else if let IntroFF = *condition {
+            } else if let IntroFF = condition {
                 reduce(ff_branch)
             } else {
-                let tt_branch = box_reduce(tt_branch);
-                let ff_branch = box_reduce(ff_branch);
-                ElimIf { condition, tt_branch, ff_branch }
+                let tt_branch = reduce(tt_branch);
+                let ff_branch = reduce(ff_branch);
+                if_then_else(condition, tt_branch, ff_branch)
             }
         },
 
-        IntroLambda { ref variable, ref body } => {
-            let variable = variable.clone();
-            let body = box_reduce(body);
-            IntroLambda { variable, body }
+        IntroLambda { ref in_type, ref body } => {
+            let in_type = (**in_type).clone();  // TODO reduce() this
+            let body = reduce(body);
+            lambda(in_type, body)
         },
         ElimApplication { ref function, ref argument } => {
             let function = reduce(function);
@@ -29,28 +30,26 @@ fn reduce(expr: &Expression) -> Expression {
                 // ooo a tail call
                 reduce(&result)
             } else {
-                let function = Box::new(function);
-                let argument = box_reduce(argument);
-                ElimApplication { function, argument }
+                let argument = reduce(argument);
+                apply(function, argument)
             }
         },
 
         IntroPair { ref fst, ref snd } => {
-            let fst = box_reduce(fst);
+            let fst = reduce(fst);
             // is there some way of removing this line?
             // since we substitute during the p2/snd eliminator anyway
             // in fact sigma variables only matter for type checking
             let snd = substitute(snd, 1, &fst, false);
-            let snd = box_reduce(&snd);
-            IntroPair { fst, snd }
+            let snd = reduce(&snd);
+            pair(fst, snd)
         },
         ElimFst { ref pair } => {
             let pair = reduce(pair);
             if let IntroPair { fst, .. } = pair {
                 *fst
             } else {
-                let pair = Box::new(pair);
-                ElimFst { pair }
+                fst(pair)
             }
         },
         ElimSnd { ref pair } => {
@@ -60,23 +59,17 @@ fn reduce(expr: &Expression) -> Expression {
                 let snd = substitute(&snd, 1, &fst, true);
                 reduce(&snd)
             } else {
-                let pair = Box::new(pair);
-                ElimSnd { pair }
+                snd(pair)
             }
         },
     }
-}
-
-fn box_reduce(expr: &Expression)
-    -> Box<Expression>
-{
-    Box::new(reduce(expr))
 }
 
 fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
     -> Expression
 {
     use type_system::Expression::*;
+    use type_system::expressions::*;
     match *expr {
         Variable(m) => {
             if m > i && elim {
@@ -92,72 +85,58 @@ fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
             expr.clone()
         },
         ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
-            ElimIf {
-                condition: box_substitute(condition, i, value, elim),
-                tt_branch: box_substitute(tt_branch, i, value, elim),
-                ff_branch: box_substitute(ff_branch, i, value, elim),
-            }
+            let condition = substitute(condition, i, value, elim);
+            let tt_branch = substitute(tt_branch, i, value, elim);
+            let ff_branch = substitute(ff_branch, i, value, elim);
+            if_then_else(condition, tt_branch, ff_branch)
         },
 
-        IntroLambda { ref variable, ref body } => {
-            IntroLambda {
-                variable: variable.clone(),
-                body: box_substitute(body, i+1, value, elim),
-            }
+        IntroLambda { ref in_type, ref body } => {
+            let in_type = (**in_type).clone();
+            let body = substitute(body, i+1, value, elim);
+            lambda(in_type, body)
         },
         ElimApplication { ref function, ref argument } => {
-            ElimApplication {
-                function: box_substitute(function, i, value, elim),
-                argument: box_substitute(argument, i, value, elim),
-            }
+            let function = substitute(function, i, value, elim);
+            let argument = substitute(argument, i, value, elim);
+            apply(function, argument)
         },
 
         IntroPair { ref fst, ref snd } => {
-            IntroPair {
-                fst: box_substitute(fst, i, value, elim),
-                snd: box_substitute(snd, i+1, value, elim),
-            }
+            let fst = substitute(fst, i, value, elim);
+            let snd = substitute(snd, i+1, value, elim);
+            pair(fst, snd)
         },
         ElimFst { ref pair } => {
-            ElimFst {
-                pair: box_substitute(pair, i, value, elim),
-            }
+            let pair = substitute(pair, i, value, elim);
+            fst(pair)
         },
         ElimSnd { ref pair } => {
-            ElimSnd {
-                pair: box_substitute(pair, i, value, elim),
-            }
+            let pair = substitute(pair, i, value, elim);
+            snd(pair)
         },
     }
-}
-
-fn box_substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
-    -> Box<Expression>
-{
-    Box::new(substitute(expr, i, value, elim))
 }
 
 #[cfg(test)]
 mod tests {
-    use type_system::Expression::*;
-    use type_system::Type;
-
     use super::*;
+    use type_system::expressions::*;
 
     macro_rules! irreducible {
-        ($before: expr) => {
+        ($before: expr) => {{
             let before = $before;
             let after = reduce(&before);
             assert_eq!(before, after);
-        }
+        }}
     }
 
     macro_rules! reduces {
-        ($before: expr => $after: expr) => {
+        ($before: expr => $after: expr) => {{
             let before = $before;
             let after = reduce(&before);
             assert_eq!(after, $after);
-        }
+        }}
     }
 
     #[test]
@@ -168,149 +147,43 @@ mod tests {
 
     #[test]
     fn irreducible_intros() {
-        irreducible!(
-            IntroPoint
-        );
-        irreducible!(
-            IntroTT
-        );
-        irreducible!(
-            IntroFF
-        );
-        irreducible!(
-            IntroLambda {
-                variable: Box::new(Type::Unit),
-                body: Box::new(IntroPoint),
-            }
-        );
-        irreducible!(
-            IntroPair {
-                fst: Box::new(IntroTT),
-                snd: Box::new(IntroFF),
-            }
-        );
+        irreducible!(point());
+        irreducible!(tt());
+        irreducible!(ff());
+        irreducible!(lambda(unit(), point()));
+        irreducible!(pair(tt(), ff()));
     }
 
     #[test]
     fn reduce_bool() {
-        reduces!(
-            // if tt then tt else ff
-            ElimIf {
-                condition: Box::new(IntroTT),
-                tt_branch: Box::new(IntroTT),
-                ff_branch: Box::new(IntroFF),
-            }
-        =>
-            // tt
-            IntroTT
-        );
+        reduces!(if_then_else(tt(), tt(), ff()) => tt());
 
-        reduces!(
-            // if ff then tt else ff
-            ElimIf {
-                condition: Box::new(IntroFF),
-                tt_branch: Box::new(IntroTT),
-                ff_branch: Box::new(IntroFF),
-            }
-        =>
-            // ff
-            IntroFF
-        );
+        reduces!(if_then_else(ff(), tt(), ff()) => ff());
 
-        irreducible!(
-            // if x then tt else ff
-            ElimIf {
-                condition: Box::new(Variable(1)),
-                tt_branch: Box::new(IntroTT),
-                ff_branch: Box::new(IntroFF),
-            }
-        );
+        irreducible!(if_then_else(var(1), tt(), ff()));
     }
 
     #[test]
     fn reduce_lambda() {
-        reduces!(
-            // (\x -> x) tt
-            ElimApplication {
-                function: Box::new(IntroLambda {
-                    variable: Box::new(Type::Bool),
-                    body: Box::new(Variable(1)),
-                }),
-                argument: Box::new(IntroTT),
-            }
-        =>
-            // tt
-            IntroTT
-        );
+        reduces!(apply(lambda(bool(), var(1)), tt()) => tt());
 
         reduces!(
-            // (\x -> if x then ff else tt) tt
-            ElimApplication {
-                function: Box::new(IntroLambda {
-                    variable: Box::new(Type::Bool),
-                    body: Box::new(ElimIf {
-                        condition: Box::new(Variable(1)),
-                        tt_branch: Box::new(IntroFF),
-                        ff_branch: Box::new(IntroTT),
-                    }),
-                }),
-                argument: Box::new(IntroTT),
-            }
+            // (\x: Bool -> if x then ff else tt) tt
+            apply(lambda(bool(), if_then_else(var(1), ff(), tt())), tt())
         =>
-            // ff
-            IntroFF
+            ff()
         );
 
-        irreducible!(
-            // x ()
-            ElimApplication {
-                function: Box::new(Variable(1)),
-                argument: Box::new(IntroPoint),
-            }
-        );
+        irreducible!(apply(var(1), point()));
     }
 
     #[test]
     fn reduce_pair() {
-        reduces!(
-            // p1 <tt, ff>
-            ElimFst {
-                pair: Box::new(IntroPair {
-                    fst: Box::new(IntroTT),
-                    snd: Box::new(IntroFF),
-                }),
-            }
-        =>
-            // tt
-            IntroTT
-        );
+        reduces!(fst(pait(tt(), ff())) => tt());
+        reduces!(snd(pait(tt(), ff())) => ff());
 
-        reduces!(
-            // p2 <tt, ff>
-            ElimSnd {
-                pair: Box::new(IntroPair {
-                    fst: Box::new(IntroTT),
-                    snd: Box::new(IntroFF),
-                }),
-            }
-        =>
-            //ff
-            IntroFF
-        );
-
-        irreducible!(
-            // p1 x
-            ElimFst {
-                pair: Box::new(Variable(1)),
-            }
-        );
-
-        irreducible!(
-            // p2 x
-            ElimSnd {
-                pair: Box::new(Variable(1)),
-            }
-        );
+        irreducible!(fst(var(1)));
+        irreducible!(snd(var(1)));
     }
 }
 
