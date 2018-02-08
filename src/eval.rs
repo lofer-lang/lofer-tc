@@ -199,16 +199,16 @@ mod tests {
         irreducible!(tt());
         irreducible!(ff());
         irreducible!(lambda(unit(), point()));
-        irreducible!(pair(tt(), ff()));
+        irreducible!(pair(tt(), ff(), bool()));
     }
 
     #[test]
     fn reduce_bool() {
-        reduces!(if_then_else(tt(), tt(), ff()) => tt());
+        reduces!(if_then_else(tt(), tt(), ff(), bool()) => tt());
 
-        reduces!(if_then_else(ff(), tt(), ff()) => ff());
+        reduces!(if_then_else(ff(), tt(), ff(), bool()) => ff());
 
-        irreducible!(if_then_else(var(1), tt(), ff()));
+        irreducible!(if_then_else(var(1), tt(), ff(), bool()));
     }
 
     #[test]
@@ -217,7 +217,13 @@ mod tests {
 
         reduces!(
             // (\x: Bool -> if x then ff else tt) tt
-            apply(lambda(bool(), if_then_else(var(1), ff(), tt())), tt())
+            apply(
+                lambda(
+                    bool(),
+                    if_then_else(var(1), ff(), tt(), bool()),
+                ),
+                tt(),
+            )
         =>
             ff()
         );
@@ -227,8 +233,8 @@ mod tests {
 
     #[test]
     fn reduce_pair() {
-        reduces!(fst(pait(tt(), ff())) => tt());
-        reduces!(snd(pait(tt(), ff())) => ff());
+        reduces!(fst(pair(tt(), ff(), bool())) => tt());
+        reduces!(snd(pair(tt(), ff(), bool())) => ff());
 
         irreducible!(fst(var(1)));
         irreducible!(snd(var(1)));

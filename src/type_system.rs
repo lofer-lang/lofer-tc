@@ -61,6 +61,10 @@ pub mod expressions {
     use super::Expression;
     use super::Type;
 
+    pub fn var(n: usize) -> Expression {
+        Expression::Variable(n)
+    }
+
     pub fn point() -> Expression {
         Expression::IntroPoint
     }
@@ -73,6 +77,8 @@ pub mod expressions {
         Expression::IntroFF
     }
 
+    // would make a version with inference, but passing the context in is less
+    // intuitive than passing the actual type in
     pub fn if_then_else(
         condition: Expression,
         tt_branch: Expression,
@@ -100,6 +106,7 @@ pub mod expressions {
         Expression::ElimApplication { function, argument }
     }
 
+    // see if-then-else on the subject of type inference
     pub fn pair(fst: Expression, snd: Expression, snd_type: Expression) -> Expression {
         let fst = Box::new(fst);
         let snd = Box::new(snd);
@@ -307,8 +314,8 @@ mod tests {
         ($expr: expr) => {{
             let mut ctx = Vec::new();
             let expr = $expr;
-            let after = type_check(&mut ctx, &before);
-            assert_eq!(Err(()), after);
+            let err = type_check(&mut ctx, &expr);
+            assert_eq!(Err(()), err);
             assert_eq!(*ctx, []);
         }}
     }
@@ -321,11 +328,29 @@ mod tests {
 
         type_checks!(ff() => bool());
 
-        type_checks!(if_then_else(tt(), point(), point()) => unit());
+        type_checks!(if_then_else(tt(), point(), point(), unit()) => unit());
 
-        type_error!(if_then_else(point(), tt(), tt()));
+        type_error!(if_then_else(point(), tt(), tt(), bool()));
 
-        type_error!(if_then_else(tt(), tt(), point()));
+        type_error!(if_then_else(tt(), tt(), point(), bool()));
+
+        // should these have their own section after functions etc have been
+        // tested?
+        type_checks!(
+            if_then_else(
+                // if y then tt else () as (if y0 then bool else unit)
+                var(2), tt(), point(),
+                if_then_else(var(1), bool(), unit(), universe())
+            )
+        =>
+            // if y then bool else unit
+            if_then_else(var(2), bool(), unit(), universe())
+        );
+
+        // TODO fourth term is meant to be a type
+        // type_error!(...)
+        // lol is it possible for tt_branch etc not to be types?
+        // (if not then how could non-type outputs error)
     }
 
     #[test]
@@ -337,15 +362,17 @@ mod tests {
         type_error!(apply(lambda(bool(), point()), point()));
 
         type_error!(apply(point(), tt()));
+
+        // TODO dependent function things
     }
 
     #[test]
     fn pair_type_checking() {
-        type_checks!(pair(point(), tt()) => sigma(unit(), bool()));
+        type_checks!(pair(point(), tt(), bool()) => sigma(unit(), bool()));
 
-        type_checks!(fst(pair(point(), tt())) => unit());
+        type_checks!(fst(pair(point(), tt(), bool())) => unit());
 
-        type_checks!(snd(pair(point(), tt())) => bool());
+        type_checks!(snd(pair(point(), tt(), bool())) => bool());
 
         type_error!(fst(point()));
 
@@ -356,7 +383,7 @@ mod tests {
     #[test]
     fn strange_diagonal() {
         // unusual to represent this way, but equivalent to <tt, tt>
-        type_checks!(pair(tt(), var(1)) => sigma(bool(), bool()));
+        type_checks!(pair(tt(), var(1), bool()) => sigma(bool(), bool()));
     }
 
     #[test]
@@ -367,7 +394,7 @@ mod tests {
 
         type_checks!(
             // \x: Unit -> \y: Bool -> <y, x>
-            lambda(unit(), lambda(bool(), pair(var(1), var(3))))
+            lambda(unit(), lambda(bool(), pair(var(1), var(3), unit())))
         =>
             // Unit -> Bool -> Bool * Unit
             pi(unit(), pi(bool(), sigma(bool(), unit())))
@@ -377,5 +404,11 @@ mod tests {
     #[test]
     fn annotation_checks() {
         type_error!(pair(point(), point(), point()));  // `()` is not a type
+    }
+
+    #[test]
+    fn dependent_types() {
+        unimplemented!();
+    }
 }
 
