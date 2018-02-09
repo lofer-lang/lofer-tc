@@ -333,24 +333,6 @@ mod tests {
         type_error!(if_then_else(point(), tt(), tt(), bool()));
 
         type_error!(if_then_else(tt(), tt(), point(), bool()));
-
-        // should these have their own section after functions etc have been
-        // tested?
-        type_checks!(
-            if_then_else(
-                // if y then tt else () as (if y0 then bool else unit)
-                var(2), tt(), point(),
-                if_then_else(var(1), bool(), unit(), universe())
-            )
-        =>
-            // if y then bool else unit
-            if_then_else(var(2), bool(), unit(), universe())
-        );
-
-        // TODO fourth term is meant to be a type
-        // type_error!(...)
-        // lol is it possible for tt_branch etc not to be types?
-        // (if not then how could non-type outputs error)
     }
 
     #[test]
@@ -362,8 +344,6 @@ mod tests {
         type_error!(apply(lambda(bool(), point()), point()));
 
         type_error!(apply(point(), tt()));
-
-        // TODO dependent function things
     }
 
     #[test]
@@ -403,12 +383,63 @@ mod tests {
 
     #[test]
     fn annotation_checks() {
-        type_error!(pair(point(), point(), point()));  // `()` is not a type
+        // `()` is not a type
+        type_error!(pair(point(), point(), point()));
+
+        type_error!(lambda(point(), point()));
+
+        type_error!(pair(point(), point(), point()));
     }
 
     #[test]
     fn dependent_types() {
-        unimplemented!();
+        type_checks!(
+            lambda(
+                bool(),
+                apply(
+                    lambda(
+                        unit(),
+                        if_then_else(
+                            // if y then tt else ()
+                            //   as (if y0 then bool else unit)
+                            var(2), tt(), point(),
+                            if_then_else(var(1), bool(), unit(), universe())
+                        ),
+                    ),
+                    point()
+                )
+            )
+        =>
+            // if y then bool else unit
+            pi(bool(), if_then_else(var(1), bool(), unit(), universe()))
+        );
+
+        type_checks!(
+            // \A: U -> \B: U -> \x: A -> <tt, x>
+            //   as (if t0 then A else B)
+            lambda(
+                universe(),
+                lambda(
+                    universe(),
+                    lambda(
+                        var(2),
+                        pair(
+                            tt(), var(2),
+                            if_then_else(var(1), var(4), var(3), universe())
+                        )
+                    )
+                )
+            )
+        =>
+            // forall A: U, forall B: U,
+            //   A -> Sigma t: Bool, if t then A else U
+            pi(universe(), pi(universe(),
+                pi(
+                    var(2), sigma(bool(),
+                    if_then_else(var(1), var(4), var(3), universe()))
+                )
+            ))
+        )
     }
 }
 
