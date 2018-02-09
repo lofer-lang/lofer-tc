@@ -1,290 +1,373 @@
-#[derive(Clone, PartialEq, Debug)]
-pub enum Expression {
-    Variable(usize), // variables should be indexed from the end of the list?
-    IntroPoint,
-    IntroTT,
-    IntroFF,
-    ElimIf {
-        condition: Box<Expression>,
-        tt_branch: Box<Expression>,
-        ff_branch: Box<Expression>,
-    },
-    IntroLambda {
-        variable: Box<Type>,
-        body: Box<Expression>,
-    },
-    ElimApplication {
-        function: Box<Expression>,
-        argument: Box<Expression>,
-    },
-    IntroPair {
-        fst: Box<Expression>,
-        snd: Box<Expression>,
-    },
-    ElimFst {
-        pair: Box<Expression>,
-    },
-    ElimSnd {
-        pair: Box<Expression>,
-    },
-}
+use expressions::*;
+use substitution::deepen;
 
-#[derive(Clone, PartialEq, Debug)]
-pub enum Type {
-    Void,
-    Unit,
-    Bool,
-    Pi {
-        domain: Box<Type>,
-        codomain: Box<Type>,
-    },
-    Sigma {
-        fst_type: Box<Type>,
-        snd_type: Box<Type>,
-    },
-    // Universes needed for type families and hence type dependence
-}
-
-pub fn type_check(ctx: &mut Vec<Type>, expr: &Expression) -> Result<Type, ()> {
-    use self::Expression::*;
+pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
+    -> Result<Expression, TypeCheckError>
+{
+    use expressions::Expression::*;
     match *expr {
-        Variable(i) => {
-            Ok(ctx[ctx.len() - i].clone())
+        Variable(mut i) => {
+            i += 1;
+            Ok(deepen(&ctx[ctx.len() - i], i, 0))
         },
 
         IntroPoint => {
-            Ok(Type::Unit)
+            Ok(unit())
         },
 
         IntroTT | IntroFF => {
-            Ok(Type::Bool)
+            Ok(bool())
         },
-        ElimIf { ref condition, ref tt_branch, ref ff_branch } => {
-            let condition_type = type_check(ctx, condition)?;
-            if let Type::Bool = condition_type {
-                let tt_check = type_check(ctx, tt_branch)?;
-                let ff_check = type_check(ctx, ff_branch)?;
-                if tt_check == ff_check {
-                    Ok(tt_check)
-                } else {
-                    Err(())
-                }
-            } else {
-                Err(())
-            }
+        ElimIf {
+            ref condition,
+            ref tt_branch,
+            ref ff_branch,
+            ref out_type,
+        } => {
+            Ok(type_check_if(ctx, condition, tt_branch, ff_branch, out_type)?)
         },
 
-        IntroLambda { ref variable, ref body } => {
-            let variable_clone = (**variable).clone();
-            ctx.push(variable_clone);
-            let maybe_codomain = type_check(ctx, body);
-            let domain = Box::new(ctx.pop().unwrap());
-            let codomain = Box::new(maybe_codomain?);
-            Ok(Type::Pi { domain, codomain })
+        IntroLambda { ref in_type, ref body } => {
+            Ok(type_check_lambda(ctx, in_type, body)?)
         },
         ElimApplication { ref function, ref argument } => {
-            let fun_type = type_check(ctx, function)?;
-            let arg_type = type_check(ctx, argument)?;
-            if let Type::Pi { domain, codomain } = fun_type {
-                if arg_type == *domain {
-                    Ok(*codomain)
-                } else {
-                    Err(())
-                }
-            } else {
-                Err(())
-            }
+            Ok(type_check_apply(ctx, function, argument)?)
         },
 
-        IntroPair { ref fst, ref snd } => {
-            let fst_type = type_check(ctx, fst)?;
-            ctx.push(fst_type);
-            let maybe_snd_type = type_check(ctx, snd);
-            let fst_type = Box::new(ctx.pop().unwrap());
-            let snd_type = Box::new(maybe_snd_type?);
-            Ok(Type::Sigma { fst_type, snd_type })
+        IntroPair { ref fst, ref snd, ref snd_type } => {
+            Ok(type_check_pair(ctx, fst, snd, snd_type)?)
         },
         ElimFst { ref pair } => {
-            let pair_type = type_check(ctx, pair)?;
-            if let Type::Sigma { fst_type, .. } = pair_type {
-                Ok(*fst_type)
-            } else {
-                Err(())
-            }
+            Ok(type_check_fst(ctx, pair)
+               .map_err(|err| TypeCheckError::InFst(err))?)
         },
         ElimSnd { ref pair } => {
-            let pair_type = type_check(ctx, pair)?;
-            if let Type::Sigma { snd_type, .. } = pair_type {
-                Ok(*snd_type)
-            } else {
-                Err(())
-            }
+            Ok(type_check_snd(ctx, pair)
+               .map_err(|err| TypeCheckError::InSnd(err))?)
+        },
+
+        IntroType(_) => {
+            // TODO check types properly :P
+            Ok(universe())
         },
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckError {
+    InIf(TypeCheckIfError),
+    InLambda(TypeCheckLambdaError),
+    InApply(TypeCheckApplyError),
+    InPair(TypeCheckPairError),
+    InFst(TypeCheckPairElimError),
+    InSnd(TypeCheckPairElimError),
+}
 
+impl From<TypeCheckIfError> for TypeCheckError {
+    fn from(val: TypeCheckIfError) -> Self {
+        TypeCheckError::InIf(val)
+    }
+}
+
+impl From<TypeCheckLambdaError> for TypeCheckError {
+    fn from(val: TypeCheckLambdaError) -> Self {
+        TypeCheckError::InLambda(val)
+    }
+}
+
+impl From<TypeCheckApplyError> for TypeCheckError {
+    fn from(val: TypeCheckApplyError) -> Self {
+        TypeCheckError::InApply(val)
+    }
+}
+
+impl From<TypeCheckPairError> for TypeCheckError {
+    fn from(val: TypeCheckPairError) -> Self {
+        TypeCheckError::InPair(val)
+    }
+}
+
+fn assert_type(
+    ctx: &mut Vec<Expression>,
+    val: &Expression,
+    expected: &Expression,
+) -> Result<(), TypeError> {
+    let actual = type_check(ctx, val)?;
+    let actual = actual.reduce();
+    let expected = expected.reduce();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(TypeError::Mismatch { expected, actual })
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeError {
+    Err(Box<TypeCheckError>),
+    Mismatch {
+        expected: Expression,
+        actual: Expression,
+    },
+}
+
+impl From<TypeCheckError> for TypeError {
+    fn from(err: TypeCheckError) -> Self {
+        TypeError::Err(Box::new(err))
+    }
+}
+
+fn type_check_if(
+    ctx: &mut Vec<Expression>,
+    condition: &Expression,
+    tt_branch: &Expression,
+    ff_branch: &Expression,
+    out_type: &Expression,
+) -> Result<Expression, TypeCheckIfError> {
+    use self::TypeCheckIfError::*;
+    assert_type(ctx, condition, &bool())
+        .map_err(|err| Condition(err))?;
+
+    assert_type(ctx, tt_branch, &out_type.substitute(&tt()))
+        .map_err(|err| TTBranch(err))?;
+    assert_type(ctx, ff_branch, &out_type.substitute(&ff()))
+        .map_err(|err| FFBranch(err))?;
+
+    let out_type = out_type.substitute(condition);
+    Ok(out_type)
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckIfError {
+    Condition(TypeError),
+    TTBranch(TypeError),
+    FFBranch(TypeError),
+}
+
+fn type_check_lambda(
+    ctx: &mut Vec<Expression>,
+    in_type: &Expression,
+    body: &Expression,
+) -> Result<Expression, TypeCheckLambdaError> {
+    ctx.push(in_type.clone());
+    let maybe_codomain = type_check(ctx, body);
+    let domain = ctx.pop().unwrap();
+    let codomain = maybe_codomain?;
+    Ok(pi(domain, codomain))
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct TypeCheckLambdaError {
+    in_body: Box<TypeCheckError>
+}
+
+impl From<TypeCheckError> for TypeCheckLambdaError {
+    fn from(in_body: TypeCheckError) -> Self {
+        let in_body = Box::new(in_body);
+        TypeCheckLambdaError { in_body }
+    }
+}
+
+fn type_check_apply(
+    ctx: &mut Vec<Expression>,
+    function: &Expression,
+    argument: &Expression,
+) -> Result<Expression, TypeCheckApplyError> {
+    use self::TypeCheckApplyError::*;
+
+    let fun_type = type_check(ctx, function)
+        .map_err(|err| InFunction(Box::new(err)))?;
+    let fun_type = fun_type.reduce();
+    if let Expression::IntroType(maybe_pi) = fun_type {
+        let maybe_pi = *maybe_pi;
+        if let Type::Pi { domain, codomain } = maybe_pi {
+            assert_type(ctx, argument, &*domain)
+                .map_err(|err| Argument(err))?;
+            let codomain = codomain.substitute(&argument);
+            Ok(codomain)
+        } else {
+            Err(FunctionNotPi(simple_type(maybe_pi)))
+        }
+    } else {
+        Err(FunctionNotPi(fun_type))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckApplyError {
+    InFunction(Box<TypeCheckError>),
+    FunctionNotPi(Expression),
+    Argument(TypeError),
+}
+
+fn type_check_pair(
+    ctx: &mut Vec<Expression>,
+    fst: &Expression,
+    snd: &Expression,
+    snd_type: &Expression,
+) -> Result<Expression, TypeCheckPairError> {
+    use self::TypeCheckPairError::*;
+    let fst_type = type_check(ctx, fst)
+        .map_err(|err| InFst(Box::new(err)))?;
+    let expected_snd_type = snd_type.substitute(fst);
+    assert_type(ctx, snd, &expected_snd_type)
+        .map_err(|err| Snd(err))?;
+    Ok(sigma(fst_type, snd_type.clone()))
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckPairError {
+    InFst(Box<TypeCheckError>),
+    Snd(TypeError),
+}
+
+fn type_check_pair_elim(ctx: &mut Vec<Expression>, pair: &Expression)
+    -> Result<(Expression, Expression), TypeCheckPairElimError>
+{
+    use self::TypeCheckPairElimError::*;
+    let pair_type = type_check(ctx, pair)
+        .map_err(|err| InPair(Box::new(err)))?;
+    let pair_type = pair_type.reduce();
+    if let Expression::IntroType(maybe_sigma) = pair_type {
+        let maybe_sigma = *maybe_sigma;
+        if let Type::Sigma { fst_type, snd_type } = maybe_sigma {
+            Ok((*fst_type, *snd_type))
+        } else {
+            Err(NotSigma(simple_type(maybe_sigma)))
+        }
+    } else {
+        Err(NotSigma(pair_type))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckPairElimError {
+    InPair(Box<TypeCheckError>),
+    NotSigma(Expression),
+}
+
+fn type_check_fst(ctx: &mut Vec<Expression>, pair: &Expression)
+    -> Result<Expression, TypeCheckPairElimError>
+{
+    Ok(type_check_pair_elim(ctx, pair)?.0)
+}
+
+fn type_check_snd(ctx: &mut Vec<Expression>, pair: &Expression)
+    -> Result<Expression, TypeCheckPairElimError>
+{
+    let snd_type = type_check_pair_elim(ctx, pair)?.1;
+    let pair = pair.clone();
+    let pair = Box::new(pair);
+    let fst = Expression::ElimFst { pair };
+    let snd_type = snd_type.substitute(&fst);
+    Ok(snd_type)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! type_checks {
+        ($before: expr => $after: expr) => {{
+            #![allow(unreachable_code, unused_variables)]
+            let mut ctx = Vec::new();
+            let before = $before;
+            let after = type_check(&mut ctx, &before);
+            assert_eq!(Ok($after), after);
+            // mainly for `variable_management` but should always pass
+            assert_eq!(*ctx, []);
+        }}
+    }
+
+    macro_rules! type_error {
+        ($expr: expr => $err: expr) => {{
+            #![allow(unreachable_code, unused_variables)]
+            let mut ctx = Vec::new();
+            let expr = $expr;
+            let err = type_check(&mut ctx, &expr);
+            assert_eq!(Err($err), err);
+            assert_eq!(*ctx, []);
+        }}
+    }
+
     #[test]
     fn discrete_type_checking() {
-        let mut ctx = Vec::new();
-        // (): Unit
-        assert_eq!(Ok(Type::Unit),
-            type_check(&mut ctx, &Expression::IntroPoint));
-        // tt: Bool
-        assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &Expression::IntroTT));
-        // ff: Bool
-        assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &Expression::IntroFF));
+        type_checks!(point() => unit());
 
-        // if tt then () else ()
-        let branch_unit = Expression::ElimIf {
-            condition: Box::new(Expression::IntroTT),
-            tt_branch: Box::new(Expression::IntroPoint),
-            ff_branch: Box::new(Expression::IntroPoint),
-        };
-        // Unit
-        assert_eq!(Ok(Type::Unit), type_check(&mut ctx, &branch_unit));
+        type_checks!(tt() => bool());
 
-        // if () then tt else tt
-        let branch_bad_cond = Expression::ElimIf {
-            condition: Box::new(Expression::IntroPoint),
-            tt_branch: Box::new(Expression::IntroTT),
-            ff_branch: Box::new(Expression::IntroTT),
-        };
-        // Error
-        assert_eq!(Err(()), type_check(&mut ctx, &branch_bad_cond));
+        type_checks!(ff() => bool());
 
-        // if tt then tt else ()
-        let branch_unmatching = Expression::ElimIf {
-            condition: Box::new(Expression::IntroTT),
-            tt_branch: Box::new(Expression::IntroTT),
-            ff_branch: Box::new(Expression::IntroPoint),
-        };
-        // Error
-        assert_eq!(Err(()), type_check(&mut ctx, &branch_unmatching));
+        type_checks!(if_then_else(tt(), point(), point(), unit()) => unit());
+
+        type_error!(
+            if_then_else(point(), tt(), tt(), bool())
+        =>
+            TypeCheckError::InIf(
+                TypeCheckIfError::Condition(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
+
+        type_error!(
+            if_then_else(tt(), tt(), point(), bool())
+        =>
+            TypeCheckError::InIf(
+                TypeCheckIfError::FFBranch(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
     }
 
     #[test]
     fn function_type_checking() {
-        let mut ctx = Vec::new();
+        type_checks!(lambda(unit(), var(0)) => pi(unit(), unit()));
 
-        // \x: Unit -> x
-        let expr = Expression::IntroLambda {
-            variable: Box::new(Type::Unit),
-            body: Box::new(Expression::Variable(1)),
-        };
-        // Unit -> Unit
-        let expected = Type::Pi {
-            domain: Box::new(Type::Unit),
-            codomain: Box::new(Type::Unit),
-        };
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Ok(expected), actual);
+        type_checks!(apply(lambda(bool(), point()), tt()) => unit());
 
-        // (\x: Bool -> ()) tt
-        let expr = Expression::ElimApplication {
-            function: Box::new(Expression::IntroLambda {
-                variable: Box::new(Type::Bool),
-                body: Box::new(Expression::IntroPoint),
-            }),
-            argument: Box::new(Expression::IntroTT),
-        };
-        // Unit
-        let expected = Type::Unit;
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Ok(expected), actual);
+        type_error!(
+            apply(lambda(bool(), point()), point())
+        =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::Argument(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
 
-        // (\x: Bool -> ()) ()
-        let expr = Expression::ElimApplication {
-            function: Box::new(Expression::IntroLambda {
-                variable: Box::new(Type::Bool),
-                body: Box::new(Expression::IntroPoint),
-            }),
-            argument: Box::new(Expression::IntroPoint),
-        };
-        // Error
-        let expected = ();
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Err(expected), actual);
-
-        // () tt
-        let expr = Expression::ElimApplication {
-            function: Box::new(Expression::IntroPoint),
-            argument: Box::new(Expression::IntroTT),
-        };
-        // Error
-        let expected = ();
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Err(expected), actual);
+        type_error!(
+            apply(point(), tt())
+        =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::FunctionNotPi(unit())
+            )
+        );
     }
 
     #[test]
     fn pair_type_checking() {
-        let mut ctx = Vec::new();
+        type_checks!(pair(point(), tt(), bool()) => sigma(unit(), bool()));
 
-        // <(), tt>
-        let expr = Expression::IntroPair {
-            fst: Box::new(Expression::IntroPoint),
-            snd: Box::new(Expression::IntroTT),
-        };
-        // Unit * Bool
-        let expected = Type::Sigma {
-            fst_type: Box::new(Type::Unit),
-            snd_type: Box::new(Type::Bool),
-        };
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Ok(expected), actual);
+        type_checks!(fst(pair(point(), tt(), bool())) => unit());
 
-        // p1 <(), tt>
-        let fst = Expression::ElimFst {
-            pair: Box::new(expr.clone()),
-        };
-        // Unit
-        assert_eq!(Ok(Type::Unit), type_check(&mut ctx, &fst));
+        type_checks!(snd(pair(point(), tt(), bool())) => bool());
 
-        // p2 <(), tt>
-        let snd = Expression::ElimSnd {
-            pair: Box::new(expr.clone()),
-        };
-        // Bool
-        assert_eq!(Ok(Type::Bool), type_check(&mut ctx, &snd));
+        let err = || TypeCheckPairElimError::NotSigma(unit());
 
-        // p1 ()
-        let fst = Expression::ElimFst {
-            pair: Box::new(Expression::IntroPoint),
-        };
-        // Error
-        assert_eq!(Err(()), type_check(&mut ctx, &fst));
+        type_error!(fst(point()) => TypeCheckError::InFst(err()));
 
-        // p2 ()
-        let snd = Expression::ElimSnd {
-            pair: Box::new(Expression::IntroPoint),
-        };
-        // Error
-        assert_eq!(Err(()), type_check(&mut ctx, &snd));
-    }
-
-    // passes since sigma will be dependent in the future
-    #[test]
-    fn strange_diagonal() {
-        let mut ctx = Vec::new();
-
-        // can't be represented exactly like this
-        // but equivalent to <tt, tt>
-        let expr = Expression::IntroPair {
-            fst: Box::new(Expression::IntroTT),
-            snd: Box::new(Expression::Variable(1)),
-        };
-        // Bool -> Bool
-        let expected = Type::Sigma {
-            fst_type: Box::new(Type::Bool),
-            snd_type: Box::new(Type::Bool),
-        };
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Ok(expected), actual);
+        type_error!(snd(point()) => TypeCheckError::InSnd(err()));
     }
 
     #[test]
@@ -293,31 +376,95 @@ mod tests {
         let _ = type_check(&mut ctx, &Expression::IntroPoint);
         assert_eq!(*ctx, []);
 
-        // \x: Unit -> \y: Bool -> <y, x>
-        let expr = Expression::IntroLambda {
-            variable: Box::new(Type::Unit),
-            body: Box::new(Expression::IntroLambda {
-                variable: Box::new(Type::Bool),
-                body: Box::new(Expression::IntroPair {
-                    fst: Box::new(Expression::Variable(1)),
-                    snd: Box::new(Expression::Variable(3)), // since fst is in
-                }),                                         // in the ctx
-            }),
-        };
-        // Unit -> Bool -> Bool * Unit
-        let expected = Type::Pi {
-            domain: Box::new(Type::Unit),
-            codomain: Box::new(Type::Pi {
-                domain: Box::new(Type::Bool),
-                codomain: Box::new(Type::Sigma {
-                    fst_type: Box::new(Type::Bool),
-                    snd_type: Box::new(Type::Unit),
-                }),
-            }),
-        };
-        let actual = type_check(&mut ctx, &expr);
-        assert_eq!(Ok(expected), actual);
-        assert_eq!(*ctx, []);
+        type_checks!(
+            // \x: Unit -> \y: Bool -> <y, x>
+            lambda(unit(), lambda(bool(), pair(var(0), var(1), unit())))
+        =>
+            // Unit -> Bool -> Bool * Unit
+            pi(unit(), pi(bool(), sigma(bool(), unit())))
+        );
+    }
+
+    #[test]
+    fn annotation_checks() {
+        // `()` is not a type
+        type_error!(
+            pair(point(), point(), point())
+        =>
+            unimplemented!()
+        );
+
+        type_error!(
+            lambda(point(), point())
+        =>
+            unimplemented!()
+        );
+
+        type_error!(
+            pair(point(), point(), point())
+        =>
+            unimplemented!()
+        );
+    }
+
+    #[test]
+    fn dependent_types() {
+        // this type family is useful
+        let tf = || if_then_else(var(0), bool(), unit(), universe());
+
+        type_checks!(
+            lambda(
+                bool(),
+                apply(
+                    lambda(
+                        unit(),
+                        if_then_else(
+                            // if y then tt else ()
+                            //   as (if y0 then bool else unit)
+                            var(1), tt(), point(), tf()
+                        ),
+                    ),
+                    point()
+                )
+            )
+        =>
+            // if y then bool else unit
+            pi(bool(), tf())
+        );
+
+        type_checks!(
+            // \x: Bool -> \y: (if x then Bool else Unit) -> <x, y>
+            lambda(bool(), lambda(tf(), pair(var(1), var(0), tf())))
+        =>
+            pi(bool(), pi(tf(), sigma(bool(), tf())))
+        );
+
+        type_checks!(
+            // \A: U -> \B: U -> \x: A -> <tt, x>
+            //   as (if t0 then A else B)
+            lambda(
+                universe(),
+                lambda(
+                    universe(),
+                    lambda(
+                        var(1),
+                        pair(
+                            tt(), var(0),
+                            if_then_else(var(0), var(3), var(2), universe())
+                        )
+                    )
+                )
+            )
+        =>
+            // forall A: U, forall B: U,
+            //   A -> Sigma t: Bool, if t then A else U
+            pi(universe(), pi(universe(),
+                pi(
+                    var(1), sigma(bool(),
+                    if_then_else(var(0), var(3), var(2), universe()))
+                )
+            ))
+        )
     }
 }
 
