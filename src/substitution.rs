@@ -76,7 +76,7 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
     }
 }
 
-fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
+pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
     -> Expression
 {
     use expressions::Expression::*;
@@ -203,6 +203,8 @@ mod tests {
         substitutes!((0) <- (var(0)) in var(0) => var(0));
 
         substitutes!((1) <- (var(0)) in var(1) => var(1));
+
+        substitutes!((0) <- (var(1)) in var(0) => var(1));
 
         substitutes!((1) <- (var(1)) in var(1) => var(2));
 

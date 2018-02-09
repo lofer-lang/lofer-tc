@@ -1,12 +1,14 @@
 use expressions::*;
+use substitution::deepen;
 
 pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
     -> Result<Expression, TypeCheckError>
 {
     use expressions::Expression::*;
     match *expr {
-        Variable(i) => {
-            Ok(ctx[ctx.len() - i - 1].clone())
+        Variable(mut i) => {
+            i += 1;
+            Ok(deepen(&ctx[ctx.len() - i], i, 0))
         },
 
         IntroPoint => {
@@ -51,6 +53,7 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckError {
     InIf(TypeCheckIfError),
     InLambda(TypeCheckLambdaError),
@@ -99,6 +102,7 @@ fn assert_type(
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeError {
     Err(Box<TypeCheckError>),
     Mismatch {
@@ -133,6 +137,7 @@ fn type_check_if(
     Ok(out_type)
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckIfError {
     Condition(TypeError),
     TTBranch(TypeError),
@@ -151,6 +156,7 @@ fn type_check_lambda(
     Ok(pi(domain, codomain))
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub struct TypeCheckLambdaError {
     in_body: Box<TypeCheckError>
 }
@@ -180,17 +186,17 @@ fn type_check_apply(
             let codomain = codomain.substitute(&argument);
             Ok(codomain)
         } else {
-            Err(FunctionNotPi(maybe_pi))
+            Err(FunctionNotPi(simple_type(maybe_pi)))
         }
     } else {
-        Err(FunctionNotClosedType(fun_type))
+        Err(FunctionNotPi(fun_type))
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckApplyError {
     InFunction(Box<TypeCheckError>),
-    FunctionNotClosedType(Expression),
-    FunctionNotPi(Type),
+    FunctionNotPi(Expression),
     Argument(TypeError),
 }
 
@@ -209,6 +215,7 @@ fn type_check_pair(
     Ok(sigma(fst_type, snd_type.clone()))
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckPairError {
     InFst(Box<TypeCheckError>),
     Snd(TypeError),
@@ -226,17 +233,17 @@ fn type_check_pair_elim(ctx: &mut Vec<Expression>, pair: &Expression)
         if let Type::Sigma { fst_type, snd_type } = maybe_sigma {
             Ok((*fst_type, *snd_type))
         } else {
-            Err(NotSigma(maybe_sigma))
+            Err(NotSigma(simple_type(maybe_sigma)))
         }
     } else {
-        Err(NotClosedType(pair_type))
+        Err(NotSigma(pair_type))
     }
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckPairElimError {
     InPair(Box<TypeCheckError>),
-    NotClosedType(Expression),
-    NotSigma(Type),
+    NotSigma(Expression),
 }
 
 fn type_check_fst(ctx: &mut Vec<Expression>, pair: &Expression)
@@ -262,6 +269,7 @@ mod tests {
 
     macro_rules! type_checks {
         ($before: expr => $after: expr) => {{
+            #![allow(unreachable_code, unused_variables)]
             let mut ctx = Vec::new();
             let before = $before;
             let after = type_check(&mut ctx, &before);
@@ -272,11 +280,12 @@ mod tests {
     }
 
     macro_rules! type_error {
-        ($expr: expr) => {{
+        ($expr: expr => $err: expr) => {{
+            #![allow(unreachable_code, unused_variables)]
             let mut ctx = Vec::new();
             let expr = $expr;
             let err = type_check(&mut ctx, &expr);
-            assert_eq!(Err(()), err);
+            assert_eq!(Err($err), err);
             assert_eq!(*ctx, []);
         }}
     }
@@ -291,9 +300,31 @@ mod tests {
 
         type_checks!(if_then_else(tt(), point(), point(), unit()) => unit());
 
-        type_error!(if_then_else(point(), tt(), tt(), bool()));
+        type_error!(
+            if_then_else(point(), tt(), tt(), bool())
+        =>
+            TypeCheckError::InIf(
+                TypeCheckIfError::Condition(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
 
-        type_error!(if_then_else(tt(), tt(), point(), bool()));
+        type_error!(
+            if_then_else(tt(), tt(), point(), bool())
+        =>
+            TypeCheckError::InIf(
+                TypeCheckIfError::FFBranch(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
     }
 
     #[test]
@@ -302,9 +333,26 @@ mod tests {
 
         type_checks!(apply(lambda(bool(), point()), tt()) => unit());
 
-        type_error!(apply(lambda(bool(), point()), point()));
+        type_error!(
+            apply(lambda(bool(), point()), point())
+        =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::Argument(
+                    TypeError::Mismatch {
+                        expected: bool(),
+                        actual: unit(),
+                    }
+                )
+            )
+        );
 
-        type_error!(apply(point(), tt()));
+        type_error!(
+            apply(point(), tt())
+        =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::FunctionNotPi(unit())
+            )
+        );
     }
 
     #[test]
@@ -315,9 +363,11 @@ mod tests {
 
         type_checks!(snd(pair(point(), tt(), bool())) => bool());
 
-        type_error!(fst(point()));
+        let err = || TypeCheckPairElimError::NotSigma(unit());
 
-        type_error!(snd(point()));
+        type_error!(fst(point()) => TypeCheckError::InFst(err()));
+
+        type_error!(snd(point()) => TypeCheckError::InSnd(err()));
     }
 
     #[test]
@@ -338,11 +388,23 @@ mod tests {
     #[test]
     fn annotation_checks() {
         // `()` is not a type
-        type_error!(pair(point(), point(), point()));
+        type_error!(
+            pair(point(), point(), point())
+        =>
+            unimplemented!()
+        );
 
-        type_error!(lambda(point(), point()));
+        type_error!(
+            lambda(point(), point())
+        =>
+            unimplemented!()
+        );
 
-        type_error!(pair(point(), point(), point()));
+        type_error!(
+            pair(point(), point(), point())
+        =>
+            unimplemented!()
+        );
     }
 
     #[test]
@@ -387,7 +449,7 @@ mod tests {
                     lambda(
                         var(1),
                         pair(
-                            tt(), var(1),
+                            tt(), var(0),
                             if_then_else(var(0), var(3), var(2), universe())
                         )
                     )
