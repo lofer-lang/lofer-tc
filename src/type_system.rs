@@ -1,170 +1,9 @@
-// TODO turn these into methods on Expression
-use eval::{reduce, substitute};  // lovely coupling
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Expression {
-    Variable(usize), // variables should be indexed from the end of the list?
-
-    IntroPoint,
-
-    IntroTT,
-    IntroFF,
-    ElimIf {
-        condition: Box<Expression>,
-        tt_branch: Box<Expression>,
-        ff_branch: Box<Expression>,
-        out_type: Box<Expression>,
-    },
-
-    IntroLambda {
-        in_type: Box<Expression>,
-        body: Box<Expression>,
-    },
-    ElimApplication {
-        function: Box<Expression>,
-        argument: Box<Expression>,
-    },
-
-    IntroPair {
-        fst: Box<Expression>,
-        snd: Box<Expression>,
-        snd_type: Box<Expression>,
-    },
-    ElimFst {
-        pair: Box<Expression>,
-    },
-    ElimSnd {
-        pair: Box<Expression>,
-    },
-
-    IntroType(Box<Type>),
-    // type eliminator one day :o
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Type {
-    Void,
-    Unit,
-    Bool,
-    Pi {
-        domain: Box<Expression>,
-        codomain: Box<Expression>,
-    },
-    Sigma {
-        fst_type: Box<Expression>,
-        snd_type: Box<Expression>,
-    },
-    Universe/*(usize)*/,
-}
-
-pub mod expressions {
-    use super::Expression;
-    use super::Type;
-
-    pub fn var(n: usize) -> Expression {
-        Expression::Variable(n)
-    }
-
-    pub fn point() -> Expression {
-        Expression::IntroPoint
-    }
-
-    pub fn tt() -> Expression {
-        Expression::IntroTT
-    }
-
-    pub fn ff() -> Expression {
-        Expression::IntroFF
-    }
-
-    // would make a version with inference, but passing the context in is less
-    // intuitive than passing the actual type in
-    pub fn if_then_else(
-        condition: Expression,
-        tt_branch: Expression,
-        ff_branch: Expression,
-        out_type: Expression,
-    ) -> Expression {
-        let condition = Box::new(condition);
-        let tt_branch = Box::new(tt_branch);
-        let ff_branch = Box::new(ff_branch);
-        let out_type = Box::new(out_type);
-        Expression::ElimIf { condition, tt_branch, ff_branch, out_type }
-    }
-
-    pub fn lambda(in_type: Expression, body: Expression)
-        -> Expression
-    {
-        let in_type = Box::new(in_type);
-        let body = Box::new(body);
-        Expression::IntroLambda { in_type, body }
-    }
-
-    pub fn apply(function: Expression, argument: Expression) -> Expression {
-        let function = Box::new(function);
-        let argument = Box::new(argument);
-        Expression::ElimApplication { function, argument }
-    }
-
-    // see if-then-else on the subject of type inference
-    pub fn pair(fst: Expression, snd: Expression, snd_type: Expression) -> Expression {
-        let fst = Box::new(fst);
-        let snd = Box::new(snd);
-        let snd_type = Box::new(snd_type);
-        Expression::IntroPair { fst, snd, snd_type }
-    }
-
-    pub fn fst(pair: Expression) -> Expression {
-        let pair = Box::new(pair);
-        Expression::ElimFst { pair }
-    }
-
-    pub fn snd(pair: Expression) -> Expression {
-        let pair = Box::new(pair);
-        Expression::ElimSnd { pair }
-    }
-
-    pub fn simple_type(typ: Type) -> Expression {
-        let typ = Box::new(typ);
-        Expression::IntroType(typ)
-    }
-
-    pub fn void() -> Expression {
-        simple_type(Type::Void)
-    }
-
-    pub fn unit() -> Expression {
-        simple_type(Type::Unit)
-    }
-
-    pub fn bool() -> Expression {
-        simple_type(Type::Bool)
-    }
-
-    pub fn pi(domain: Expression, codomain: Expression) -> Expression {
-        let domain = Box::new(domain);
-        let codomain = Box::new(codomain);
-        let out = Type::Pi { domain, codomain };
-        simple_type(out)
-    }
-
-    pub fn sigma(fst_type: Expression, snd_type: Expression) -> Expression {
-        let fst_type = Box::new(fst_type);
-        let snd_type = Box::new(snd_type);
-        let out = Type::Sigma { fst_type, snd_type };
-        simple_type(out)
-    }
-
-    pub fn universe() -> Expression {
-        simple_type(Type::Universe)
-    }
-}
+use expressions::*;
 
 pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
     -> Result<Expression, ()>
 {
-    use self::Expression::*;
-    use self::expressions::*;
+    use expressions::Expression::*;
     match *expr {
         Variable(i) => {
             Ok(ctx[ctx.len() - i].clone())
@@ -184,22 +23,22 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
             ref out_type,
         } => {
             let condition_type_expr = type_check(ctx, condition)?;
-            let condition_type = reduce(&condition_type_expr);
+            let condition_type = condition_type_expr.reduce();
             if condition_type == bool() {
                 let tt_check = type_check(ctx, tt_branch)?;
-                let tt_check = reduce(&tt_check);
+                let tt_check = tt_check.reduce();
 
                 let ff_check = type_check(ctx, ff_branch)?;
-                let ff_check = reduce(&ff_check);
+                let ff_check = ff_check.reduce();
 
-                let tt_expected = substitute(&out_type, 1, &tt());
-                let tt_expected = reduce(&tt_expected);
+                let tt_expected = out_type.substitute(&tt());
+                let tt_expected = tt_expected.reduce();
 
-                let ff_expected = substitute(&out_type, 1, &ff());
-                let ff_expected = reduce(&ff_expected);
+                let ff_expected = out_type.substitute(&ff());
+                let ff_expected = ff_expected.reduce();
 
                 if tt_check == tt_expected && ff_check == ff_expected {
-                    let out_type = substitute(&out_type, 1, condition);
+                    let out_type = out_type.substitute(condition);
                     Ok(out_type)
                 } else {
                     Err(())
@@ -219,14 +58,13 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
         },
         ElimApplication { ref function, ref argument } => {
             let fun_type = type_check(ctx, function)?;
-            let fun_type = reduce(&fun_type);
+            let fun_type = fun_type.reduce();
             let arg_type = type_check(ctx, argument)?;
             if let Expression::IntroType(maybe_pi) = fun_type {
                 let maybe_pi = *maybe_pi;
                 if let Type::Pi { domain, codomain } = maybe_pi {
                     if arg_type == *domain {
-                        let codomain =
-                            substitute(&codomain, 1, &argument);
+                        let codomain = codomain.substitute(&argument);
                         Ok(codomain)
                     } else {
                         Err(())
@@ -242,9 +80,9 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
         IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst_type = type_check(ctx, fst)?;
             let inner_snd_type = type_check(ctx, snd)?;
-            let inner_snd_type = reduce(&inner_snd_type);
-            let expected_snd_type = substitute(snd_type, 1, fst);
-            let expected_snd_type = reduce(&expected_snd_type);
+            let inner_snd_type = inner_snd_type.reduce();
+            let expected_snd_type = snd_type.substitute(fst);
+            let expected_snd_type = expected_snd_type.reduce();
             if inner_snd_type == expected_snd_type {
                 Ok(sigma(fst_type, (**snd_type).clone()))
             } else {
@@ -253,7 +91,7 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
         },
         ElimFst { ref pair } => {
             let pair_type = type_check(ctx, pair)?;
-            let pair_type = reduce(&pair_type);
+            let pair_type = pair_type.reduce();
             // TODO write functions to do this type evaluation + checking
             if let Expression::IntroType(maybe_sigma) = pair_type {
                 if let Type::Sigma { fst_type, .. } = *maybe_sigma {
@@ -267,12 +105,12 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
         },
         ElimSnd { ref pair } => {
             let pair_type = type_check(ctx, pair)?;
-            let pair_type = reduce(&pair_type);
+            let pair_type = pair_type.reduce();
             if let Expression::IntroType(maybe_sigma) = pair_type {
                 if let Type::Sigma { snd_type, .. } = *maybe_sigma {
                     let pair = pair.clone();
                     let fst = ElimFst { pair };
-                    let snd_type = substitute(&snd_type, 1, &fst);
+                    let snd_type = snd_type.substitute(&fst);
                     Ok(snd_type)
                 } else {
                     Err(())
@@ -294,7 +132,6 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::expressions::*;
 
     macro_rules! type_checks {
         ($before: expr => $after: expr) => {{

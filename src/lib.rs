@@ -1,6 +1,8 @@
 // TODO remove this
 #![allow(dead_code)]
 
-mod type_system;
 mod eval;
+mod expressions;
+mod substitution;
+mod type_system;
 
