@@ -192,14 +192,14 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
                 let ff_check = type_check(ctx, ff_branch)?;
                 let ff_check = reduce(&ff_check);
 
-                let tt_expected = substitute(&out_type, 1, &tt(), true);
+                let tt_expected = substitute(&out_type, 1, &tt());
                 let tt_expected = reduce(&tt_expected);
 
-                let ff_expected = substitute(&out_type, 1, &ff(), true);
+                let ff_expected = substitute(&out_type, 1, &ff());
                 let ff_expected = reduce(&ff_expected);
 
                 if tt_check == tt_expected && ff_check == ff_expected {
-                    let out_type = substitute(&out_type, 1, condition, true);
+                    let out_type = substitute(&out_type, 1, condition);
                     Ok(out_type)
                 } else {
                     Err(())
@@ -226,7 +226,7 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
                 if let Type::Pi { domain, codomain } = maybe_pi {
                     if arg_type == *domain {
                         let codomain =
-                            substitute(&codomain, 1, &argument, true);
+                            substitute(&codomain, 1, &argument);
                         Ok(codomain)
                     } else {
                         Err(())
@@ -241,12 +241,9 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
 
         IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst_type = type_check(ctx, fst)?;
-            ctx.push(fst_type);
-            let maybe_snd_type = type_check(ctx, snd);
-            let fst_type = ctx.pop().unwrap();
-            let inner_snd_type = maybe_snd_type?;
+            let inner_snd_type = type_check(ctx, snd)?;
             let inner_snd_type = reduce(&inner_snd_type);
-            let expected_snd_type = substitute(snd_type, 1, fst, true);
+            let expected_snd_type = substitute(snd_type, 1, fst);
             let expected_snd_type = reduce(&expected_snd_type);
             if inner_snd_type == expected_snd_type {
                 Ok(sigma(fst_type, (**snd_type).clone()))
@@ -275,7 +272,7 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
                 if let Type::Sigma { snd_type, .. } = *maybe_sigma {
                     let pair = pair.clone();
                     let fst = ElimFst { pair };
-                    let snd_type = substitute(&snd_type, 1, &fst, true);
+                    let snd_type = substitute(&snd_type, 1, &fst);
                     Ok(snd_type)
                 } else {
                     Err(())
@@ -359,13 +356,6 @@ mod tests {
         type_error!(snd(point()));
     }
 
-    // passes since sigma will be dependent in the future
-    #[test]
-    fn strange_diagonal() {
-        // unusual to represent this way, but equivalent to <tt, tt>
-        type_checks!(pair(tt(), var(1), bool()) => sigma(bool(), bool()));
-    }
-
     #[test]
     fn variable_management() {
         let mut ctx = Vec::new();
@@ -374,7 +364,7 @@ mod tests {
 
         type_checks!(
             // \x: Unit -> \y: Bool -> <y, x>
-            lambda(unit(), lambda(bool(), pair(var(1), var(3), unit())))
+            lambda(unit(), lambda(bool(), pair(var(1), var(2), unit())))
         =>
             // Unit -> Bool -> Bool * Unit
             pi(unit(), pi(bool(), sigma(bool(), unit())))
@@ -393,6 +383,9 @@ mod tests {
 
     #[test]
     fn dependent_types() {
+        // this type family is useful
+        let tf = || if_then_else(var(1), bool(), unit(), universe());
+
         type_checks!(
             lambda(
                 bool(),
@@ -402,8 +395,7 @@ mod tests {
                         if_then_else(
                             // if y then tt else ()
                             //   as (if y0 then bool else unit)
-                            var(2), tt(), point(),
-                            if_then_else(var(1), bool(), unit(), universe())
+                            var(2), tt(), point(), tf()
                         ),
                     ),
                     point()
@@ -411,7 +403,14 @@ mod tests {
             )
         =>
             // if y then bool else unit
-            pi(bool(), if_then_else(var(1), bool(), unit(), universe()))
+            pi(bool(), tf())
+        );
+
+        type_checks!(
+            // \x: Bool -> \y: (if x then Bool else Unit) -> <x, y>
+            lambda(bool(), lambda(tf(), pair(var(2), var(1), tf())))
+        =>
+            pi(bool(), pi(tf(), sigma(bool(), tf())))
         );
 
         type_checks!(

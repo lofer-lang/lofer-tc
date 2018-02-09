@@ -32,7 +32,7 @@ pub fn reduce(expr: &Expression) -> Expression {
         ElimApplication { ref function, ref argument } => {
             let function = reduce(function);
             if let IntroLambda { body, .. } = function {
-                let result = substitute(&body, 1, argument, true);
+                let result = substitute(&body, 1, argument);
                 // ooo a tail call
                 reduce(&result)
             } else {
@@ -43,11 +43,7 @@ pub fn reduce(expr: &Expression) -> Expression {
 
         IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst = reduce(fst);
-            // is there some way of removing this line?
-            // since we substitute during the p2/snd eliminator anyway
-            // in fact sigma variables only matter for type checking
-            let snd = substitute(snd, 1, &fst, false);
-            let snd = reduce(&snd);
+            let snd = reduce(snd);
             let snd_type = reduce(snd_type);
             pair(fst, snd, snd_type)
         },
@@ -61,10 +57,8 @@ pub fn reduce(expr: &Expression) -> Expression {
         },
         ElimSnd { ref pair } => {
             let pair = reduce(pair);
-            if let IntroPair { fst, snd, .. } = pair {
-                // mainly to eliminate the variable
-                let snd = substitute(&snd, 1, &fst, true);
-                reduce(&snd)
+            if let IntroPair { snd, .. } = pair {
+                reduce(&*snd)
             } else {
                 snd(pair)
             }
@@ -89,14 +83,14 @@ pub fn reduce(expr: &Expression) -> Expression {
     }
 }
 
-pub fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
+pub fn substitute(expr: &Expression, i: usize, value: &Expression)
     -> Expression
 {
     use type_system::Expression::*;
     use type_system::expressions::*;
     match *expr {
         Variable(m) => {
-            if m > i && elim {
+            if m > i {
                 Variable(m-1)
             } else if m == i {
                 value.clone()
@@ -114,36 +108,36 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
             ref ff_branch,
             ref out_type,
         } => {
-            let condition = substitute(condition, i, value, elim);
-            let tt_branch = substitute(tt_branch, i, value, elim);
-            let ff_branch = substitute(ff_branch, i, value, elim);
-            let out_type = substitute(out_type, i+1, value, elim);
+            let condition = substitute(condition, i, value);
+            let tt_branch = substitute(tt_branch, i, value);
+            let ff_branch = substitute(ff_branch, i, value);
+            let out_type = substitute(out_type, i+1, value);
             if_then_else(condition, tt_branch, ff_branch, out_type)
         },
 
         IntroLambda { ref in_type, ref body } => {
-            let in_type = substitute(in_type, i, value, elim);
-            let body = substitute(body, i+1, value, elim);
+            let in_type = substitute(in_type, i, value);
+            let body = substitute(body, i+1, value);
             lambda(in_type, body)
         },
         ElimApplication { ref function, ref argument } => {
-            let function = substitute(function, i, value, elim);
-            let argument = substitute(argument, i, value, elim);
+            let function = substitute(function, i, value);
+            let argument = substitute(argument, i, value);
             apply(function, argument)
         },
 
         IntroPair { ref fst, ref snd, ref snd_type } => {
-            let fst = substitute(fst, i, value, elim);
-            let snd = substitute(snd, i+1, value, elim);
-            let snd_type = substitute(snd_type, i+1, value, elim);
+            let fst = substitute(fst, i, value);
+            let snd = substitute(snd, i, value);
+            let snd_type = substitute(snd_type, i+1, value);
             pair(fst, snd, snd_type)
         },
         ElimFst { ref pair } => {
-            let pair = substitute(pair, i, value, elim);
+            let pair = substitute(pair, i, value);
             fst(pair)
         },
         ElimSnd { ref pair } => {
-            let pair = substitute(pair, i, value, elim);
+            let pair = substitute(pair, i, value);
             snd(pair)
         },
 
@@ -152,13 +146,13 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression, elim: bool)
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {
-                    let domain = substitute(domain, i, value, elim);
-                    let codomain = substitute(codomain, i+1, value, elim);
+                    let domain = substitute(domain, i, value);
+                    let codomain = substitute(codomain, i+1, value);
                     pi(domain, codomain)
                 },
                 Sigma { ref fst_type, ref snd_type } => {
-                    let fst_type = substitute(fst_type, i, value, elim);
-                    let snd_type = substitute(snd_type, i+1, value, elim);
+                    let fst_type = substitute(fst_type, i, value);
+                    let snd_type = substitute(snd_type, i+1, value);
                     sigma(fst_type, snd_type)
                 },
             }
