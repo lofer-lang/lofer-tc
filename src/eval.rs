@@ -122,14 +122,14 @@ mod tests {
 
     #[test]
     fn reduce_lambda() {
-        reduces!(apply(lambda(bool(), var(1)), tt()) => tt());
+        reduces!(apply(lambda(bool(), var(0)), tt()) => tt());
 
         reduces!(
             // (\x: Bool -> if x then ff else tt) tt
             apply(
                 lambda(
                     bool(),
-                    if_then_else(var(1), ff(), tt(), bool()),
+                    if_then_else(var(0), ff(), tt(), bool()),
                 ),
                 tt(),
             )

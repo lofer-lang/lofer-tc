@@ -6,7 +6,7 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
     use expressions::Expression::*;
     match *expr {
         Variable(i) => {
-            Ok(ctx[ctx.len() - i].clone())
+            Ok(ctx[ctx.len() - i - 1].clone())
         },
 
         IntroPoint => {
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn function_type_checking() {
-        type_checks!(lambda(unit(), var(1)) => pi(unit(), unit()));
+        type_checks!(lambda(unit(), var(0)) => pi(unit(), unit()));
 
         type_checks!(apply(lambda(bool(), point()), tt()) => unit());
 
@@ -201,7 +201,7 @@ mod tests {
 
         type_checks!(
             // \x: Unit -> \y: Bool -> <y, x>
-            lambda(unit(), lambda(bool(), pair(var(1), var(2), unit())))
+            lambda(unit(), lambda(bool(), pair(var(0), var(1), unit())))
         =>
             // Unit -> Bool -> Bool * Unit
             pi(unit(), pi(bool(), sigma(bool(), unit())))
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn dependent_types() {
         // this type family is useful
-        let tf = || if_then_else(var(1), bool(), unit(), universe());
+        let tf = || if_then_else(var(0), bool(), unit(), universe());
 
         type_checks!(
             lambda(
@@ -232,7 +232,7 @@ mod tests {
                         if_then_else(
                             // if y then tt else ()
                             //   as (if y0 then bool else unit)
-                            var(2), tt(), point(), tf()
+                            var(1), tt(), point(), tf()
                         ),
                     ),
                     point()
@@ -245,7 +245,7 @@ mod tests {
 
         type_checks!(
             // \x: Bool -> \y: (if x then Bool else Unit) -> <x, y>
-            lambda(bool(), lambda(tf(), pair(var(2), var(1), tf())))
+            lambda(bool(), lambda(tf(), pair(var(1), var(0), tf())))
         =>
             pi(bool(), pi(tf(), sigma(bool(), tf())))
         );
@@ -258,10 +258,10 @@ mod tests {
                 lambda(
                     universe(),
                     lambda(
-                        var(2),
+                        var(1),
                         pair(
-                            tt(), var(2),
-                            if_then_else(var(1), var(4), var(3), universe())
+                            tt(), var(1),
+                            if_then_else(var(0), var(3), var(2), universe())
                         )
                     )
                 )
@@ -271,8 +271,8 @@ mod tests {
             //   A -> Sigma t: Bool, if t then A else U
             pi(universe(), pi(universe(),
                 pi(
-                    var(2), sigma(bool(),
-                    if_then_else(var(1), var(4), var(3), universe()))
+                    var(1), sigma(bool(),
+                    if_then_else(var(0), var(3), var(2), universe()))
                 )
             ))
         )

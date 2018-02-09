@@ -43,7 +43,7 @@ pub enum Expression {
 
 impl Expression {
     pub fn substitute(self: &Self, var: &Self) -> Self {
-        substitute(self, 1, var)
+        substitute(self, 0, var)
     }
 
     pub fn reduce(self: &Self) -> Self {
