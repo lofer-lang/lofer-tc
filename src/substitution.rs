@@ -73,6 +73,11 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
                 },
             }
         },
+
+        SpecialFix { ref generator } => {
+            let generator = substitute(generator, i, value);
+            fix(generator)
+        },
     }
 }
 
@@ -150,6 +155,11 @@ pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
                     sigma(fst_type, snd_type)
                 },
             }
+        },
+
+        SpecialFix { ref generator } => {
+            let generator = deepen(generator, extra_depth, current_offset);
+            fix(generator)
         },
     }
 }

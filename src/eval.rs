@@ -1,6 +1,6 @@
 use expressions::*;
 
-pub fn reduce(expr: &Expression) -> Expression {
+pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
     use expressions::Expression::*;
     match *expr {
         Variable(_) | IntroPoint | IntroTT | IntroFF => expr.clone(),
@@ -10,44 +10,44 @@ pub fn reduce(expr: &Expression) -> Expression {
             ref ff_branch,
             ref out_type,
         } => {
-            let condition = reduce(condition);
+            let condition = reduce(condition, is_strict);
             if let IntroTT = condition {
-                reduce(tt_branch)
+                reduce(tt_branch, is_strict)
             } else if let IntroFF = condition {
-                reduce(ff_branch)
+                reduce(ff_branch, is_strict)
             } else {
-                let tt_branch = reduce(tt_branch);
-                let ff_branch = reduce(ff_branch);
-                let out_type = reduce(out_type);
+                let tt_branch = reduce(tt_branch, false);
+                let ff_branch = reduce(ff_branch, false);
+                let out_type = reduce(out_type, false);
                 if_then_else(condition, tt_branch, ff_branch, out_type)
             }
         },
 
         IntroLambda { ref in_type, ref body } => {
-            let in_type = reduce(in_type);
-            let body = reduce(body);
+            let in_type = reduce(in_type, false);
+            let body = reduce(body, false);
             lambda(in_type, body)
         },
         ElimApplication { ref function, ref argument } => {
-            let function = reduce(function);
+            let function = reduce(function, is_strict);
             if let IntroLambda { body, .. } = function {
                 let result = body.substitute(argument);
                 // ooo a tail call
-                reduce(&result)
+                reduce(&result, is_strict)
             } else {
-                let argument = reduce(argument);
+                let argument = reduce(argument, is_strict);
                 apply(function, argument)
             }
         },
 
         IntroPair { ref fst, ref snd, ref snd_type } => {
-            let fst = reduce(fst);
-            let snd = reduce(snd);
-            let snd_type = reduce(snd_type);
+            let fst = reduce(fst, is_strict);
+            let snd = reduce(snd, is_strict);
+            let snd_type = reduce(snd_type, false);
             pair(fst, snd, snd_type)
         },
         ElimFst { ref pair } => {
-            let pair = reduce(pair);
+            let pair = reduce(pair, is_strict);
             if let IntroPair { fst, .. } = pair {
                 *fst
             } else {
@@ -55,9 +55,9 @@ pub fn reduce(expr: &Expression) -> Expression {
             }
         },
         ElimSnd { ref pair } => {
-            let pair = reduce(pair);
+            let pair = reduce(pair, is_strict);
             if let IntroPair { snd, .. } = pair {
-                reduce(&*snd)
+                reduce(&*snd, is_strict)
             } else {
                 snd(pair)
             }
@@ -68,15 +68,26 @@ pub fn reduce(expr: &Expression) -> Expression {
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {
-                    let domain = reduce(domain);
-                    let codomain = reduce(codomain);
+                    let domain = reduce(domain, is_strict);
+                    let codomain = reduce(codomain, is_strict);
                     pi(domain, codomain)
                 },
                 Sigma { ref fst_type, ref snd_type } => {
-                    let fst_type = reduce(fst_type);
-                    let snd_type = reduce(snd_type);
+                    let fst_type = reduce(fst_type, is_strict);
+                    let snd_type = reduce(snd_type, is_strict);
                     sigma(fst_type, snd_type)
                 },
+            }
+        },
+
+        SpecialFix { ref generator } => {
+            let generator = reduce(generator, false);
+            if is_strict {
+                let fixed_point = fix(generator.clone());
+                let expr = apply(generator, fixed_point);
+                reduce(&expr, true)
+            } else {
+                fix(generator)
             }
         },
     }

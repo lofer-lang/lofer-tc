@@ -50,6 +50,10 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
             // TODO check types properly :P
             Ok(universe())
         },
+
+        SpecialFix { ref generator } => {
+            Ok(type_check_fix(ctx, generator, expr)?)
+        },
     }
 }
 
@@ -61,6 +65,7 @@ pub enum TypeCheckError {
     InPair(TypeCheckPairError),
     InFst(TypeCheckPairElimError),
     InSnd(TypeCheckPairElimError),
+    InFix(TypeCheckFixError),
 }
 
 impl From<TypeCheckIfError> for TypeCheckError {
@@ -87,14 +92,20 @@ impl From<TypeCheckPairError> for TypeCheckError {
     }
 }
 
+impl From<TypeCheckFixError> for TypeCheckError {
+    fn from(val: TypeCheckFixError) -> Self {
+        TypeCheckError::InFix(val)
+    }
+}
+
 fn assert_type(
     ctx: &mut Vec<Expression>,
     val: &Expression,
     expected: &Expression,
 ) -> Result<(), TypeError> {
     let actual = type_check(ctx, val)?;
-    let actual = actual.reduce();
-    let expected = expected.reduce();
+    let actual = actual.reduce_lazy();
+    let expected = expected.reduce_lazy();
     if actual == expected {
         Ok(())
     } else {
@@ -177,7 +188,7 @@ fn type_check_apply(
 
     let fun_type = type_check(ctx, function)
         .map_err(|err| InFunction(Box::new(err)))?;
-    let fun_type = fun_type.reduce();
+    let fun_type = fun_type.reduce_lazy();
     if let Expression::IntroType(maybe_pi) = fun_type {
         let maybe_pi = *maybe_pi;
         if let Type::Pi { domain, codomain } = maybe_pi {
@@ -227,7 +238,7 @@ fn type_check_pair_elim(ctx: &mut Vec<Expression>, pair: &Expression)
     use self::TypeCheckPairElimError::*;
     let pair_type = type_check(ctx, pair)
         .map_err(|err| InPair(Box::new(err)))?;
-    let pair_type = pair_type.reduce();
+    let pair_type = pair_type.reduce_lazy();
     if let Expression::IntroType(maybe_sigma) = pair_type {
         let maybe_sigma = *maybe_sigma;
         if let Type::Sigma { fst_type, snd_type } = maybe_sigma {
@@ -261,6 +272,50 @@ fn type_check_snd(ctx: &mut Vec<Expression>, pair: &Expression)
     let fst = Expression::ElimFst { pair };
     let snd_type = snd_type.substitute(&fst);
     Ok(snd_type)
+}
+
+fn type_check_fix(
+    ctx: &mut Vec<Expression>,
+    generator: &Expression,
+    fixed_point: &Expression
+) -> Result<Expression, TypeCheckFixError>
+{
+    use self::TypeCheckFixError::*;
+    let generator_type = type_check(ctx, generator)
+        .map_err(|err| InGenerator(Box::new(err)))?;
+    if let Expression::IntroType(maybe_pi) = generator_type {
+        let maybe_pi = *maybe_pi;
+        if let Type::Pi { domain, codomain } = maybe_pi {
+            let codomain = codomain.substitute(fixed_point);
+            // are these necessary? probably?
+            let domain = domain.reduce_lazy();
+            let codomain = codomain.reduce_lazy();
+            if domain == codomain {
+                Ok(domain)
+            } else {
+                Err(NotEndo { domain, codomain })
+            }
+        } else {
+            Err(NotPi(simple_type(maybe_pi)))
+        }
+    } else {
+        Err(NotPi(generator_type))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum TypeCheckFixError {
+    InGenerator(Box<TypeCheckError>),
+    NotPi(Expression),
+    /// Given a generator `gen`, the fixed point `fix gen` can only
+    /// exist if the the domain of `gen` is the type of `gen (fix gen)`.
+    /// In the absence of dependently typed functions, this means the
+    /// domain and codomain must be equal, i.e. the generator function must
+    /// be an endofunction.
+    NotEndo {
+        domain: Expression,
+        codomain: Expression,
+    },
 }
 
 #[cfg(test)]
