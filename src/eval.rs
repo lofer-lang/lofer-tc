@@ -100,7 +100,7 @@ mod tests {
     macro_rules! irreducible {
         ($before: expr) => {{
             let before = $before;
-            let after = reduce(&before);
+            let after = reduce(&before, true);
             assert_eq!(before, after);
         }}
     }
@@ -108,7 +108,7 @@ mod tests {
     macro_rules! reduces {
         ($before: expr => $after: expr) => {{
             let before = $before;
-            let after = reduce(&before);
+            let after = reduce(&before, true);
             assert_eq!(after, $after);
         }}
     }
@@ -158,6 +158,47 @@ mod tests {
 
         irreducible!(fst(var(1)));
         irreducible!(snd(var(1)));
+    }
+
+    #[test]
+    fn branches_block_recursion() {
+        // not allowed in Agda or Coq
+        // freeze = fix (\freeze: Void -> freeze)
+        let freeze = || fix(lambda(void(), var(0)));
+
+        // recursive things don't reduce until a branch is chosen
+        irreducible!(if_then_else(var(0), freeze(), freeze(), void()));
+
+        let term = ||
+            fix(lambda(bool(), if_then_else(var(1), var(0), tt(), bool())));
+
+        reduces!(
+            term()
+        =>
+            if_then_else(var(0), term(), tt(), bool())
+        );
+
+        // not sure if this is necessary but recursive things don't
+        // reduce until functions have been applied
+        irreducible!(lambda(bool(), freeze()));
+
+        let term = ||
+            fix(
+                lambda(
+                    pi(bool(), bool()),
+                    lambda(bool(), apply(var(1), var(0)))
+                )
+            );
+        reduces!(
+            term()
+        =>
+            lambda(bool(), apply(term(), var(0)))
+        );
+    }
+
+    #[test]
+    fn more_recursion_tests() {
+        unimplemented!();
     }
 }
 
