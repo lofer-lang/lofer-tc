@@ -253,21 +253,15 @@ impl Expression {
                 ref condition,
                 ref tt_branch,
                 ref ff_branch,
-                ref out_type,
+                ..
             }=> {
-                write!(fmt, "bool_elim (")?;
-                let var = choose_var(ctx.len());
-                write!(fmt, "\\ {}: Bool -> ", var)?;
-                ctx.push(var);
-                out_type.pretty(fmt, ctx)?;
-                ctx.pop();
-                write!(fmt, ") (")?;
-                tt_branch.pretty(fmt, ctx)?;
-                write!(fmt, ") (")?;
-                ff_branch.pretty(fmt, ctx)?;
-                write!(fmt, ") (")?;
+
+                write!(fmt, "if ")?;
                 condition.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
+                write!(fmt, " then ")?;
+                tt_branch.pretty(fmt, ctx)?;
+                write!(fmt, " else ")?;
+                ff_branch.pretty(fmt, ctx)?;
             },
 
             IntroLambda { ref in_type, ref body } => {

@@ -197,13 +197,24 @@ mod tests {
     }
 
     #[test]
-    fn more_recursion_tests() {
+    fn peano() {
         // these should be in a module somewhere since multiple tests could
         // use them
-        let sum = |a, b| sigma(bool(), if_then_else(var(0), a, b, universe()));
-        let nat = || fix(lambda(universe(), sum(var(1), unit())));
+        let sum = || lambda(universe(), lambda(universe(),
+            sigma(bool(), if_then_else(var(0), var(2), var(1), universe()))
+        ));
+        let apply_sum = |a, b| apply(apply(sum(), a), b);
+        reduces!(
+            apply_sum(bool(), unit())
+        =>
+            sigma(bool(), if_then_else(var(0), bool(), unit(), universe()))
+        );
+
+        let nat = || fix(lambda(universe(), apply_sum(var(0), unit())));
+
         let zero = || pair(ff(), point(), nat());
         let succ = || lambda(nat(), pair(tt(), var(0), nat()));
+        let apply_succ = |x| apply(succ(), x);
 
         /* nope nope nope
         let nat_elim = ||
@@ -217,26 +228,30 @@ mod tests {
             fix(lambda(pi(nat(), apply(var(), var(0))),
                 lambda(nat(), if_then_else(fst(var(0)), base, apply(ind, apply(self, snd(var(0)))), apply(prop, var(1)))))))))
                 */
+
         // this probably won't type check as is
-        let sum = ||
+        let plus = ||
             lambda(nat(),
             fix(lambda(pi(nat(), nat()),
             lambda(nat(),
                 if_then_else(
                     fst(var(0)),
-                    var(2),
                         apply(succ(),
                         apply(var(1),
                         snd(var(0)))),
+                    var(2),
                     nat(),
                 )
             ))));
 
-        let two = || apply(succ(), apply(succ(), zero()));
-        let four = || apply(succ(), apply(succ(), two()));
+        let two = || apply_succ(apply_succ(zero()));
+        let four = || apply_succ(apply_succ(two())).reduce_lazy();
 
-        reduces!(apply(apply(sum(), two()), two()) => four());
+        reduces!(apply(apply(plus(), two()), two()) => four());
+    }
 
+    #[test]
+    fn other_recursive_things() {
         unimplemented!();
     }
 }
