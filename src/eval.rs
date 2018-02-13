@@ -198,6 +198,45 @@ mod tests {
 
     #[test]
     fn more_recursion_tests() {
+        // these should be in a module somewhere since multiple tests could
+        // use them
+        let sum = |a, b| sigma(bool(), if_then_else(var(0), a, b, universe()));
+        let nat = || fix(lambda(universe(), sum(var(1), unit())));
+        let zero = || pair(ff(), point(), nat());
+        let succ = || lambda(nat(), pair(tt(), var(0), nat()));
+
+        /* nope nope nope
+        let nat_elim = ||
+            lambda(pi(nat(), universe()),
+            lambda(apply(var(0), zero()),
+            lambda(
+                pi(nat(),
+                pi(apply(var(2), var(0)),
+                    apply(var(3), apply(succ(), var(1)))
+                )),
+            fix(lambda(pi(nat(), apply(var(), var(0))),
+                lambda(nat(), if_then_else(fst(var(0)), base, apply(ind, apply(self, snd(var(0)))), apply(prop, var(1)))))))))
+                */
+        // this probably won't type check as is
+        let sum = ||
+            lambda(nat(),
+            fix(lambda(pi(nat(), nat()),
+            lambda(nat(),
+                if_then_else(
+                    fst(var(0)),
+                    var(2),
+                        apply(succ(),
+                        apply(var(1),
+                        snd(var(0)))),
+                    nat(),
+                )
+            ))));
+
+        let two = || apply(succ(), apply(succ(), zero()));
+        let four = || apply(succ(), apply(succ(), two()));
+
+        reduces!(apply(apply(sum(), two()), two()) => four());
+
         unimplemented!();
     }
 }

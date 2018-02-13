@@ -1,7 +1,9 @@
+use std::fmt;
+
 use eval::reduce;
 use substitution::substitute;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Expression {
     Variable(usize), // variables should be indexed from the end of the list?
 
@@ -203,6 +205,160 @@ impl PartialEq for Expression {
 
             (_, _) => false,
         }
+    }
+}
+
+impl fmt::Debug for Expression {
+    fn fmt(self: &Self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let mut ctx = Vec::new();
+        self.pretty(fmt, &mut ctx)?;
+        Ok(())
+    }
+}
+
+fn choose_var(len: usize) -> String {
+    ["a", "b", "c", "d", "e", "f",
+     "g", "h", "i", "j", "k", "l",
+     "m", "n", "o", "p", "q", "r",
+     "s", "t", "u", "v", "w", "x",
+     "y", "z"][len % 26].into()
+}
+
+
+impl Expression {
+    fn pretty(self: &Self, fmt: &mut fmt::Formatter, ctx: &mut Vec<String>)
+        -> Result<(), fmt::Error>
+    {
+        use self::Expression::*;
+        match *self {
+            Variable(n) => {
+                if n < ctx.len() {
+                    write!(fmt, "{}", ctx[ctx.len() - n - 1])?;
+                } else {
+                    write!(fmt, "?")?;
+                }
+            },
+
+            IntroPoint => {
+                write!(fmt, "<>")?;
+            },
+
+            IntroTT => {
+                write!(fmt, "true")?;
+            },
+            IntroFF => {
+                write!(fmt, "false")?;
+            },
+            ElimIf {
+                ref condition,
+                ref tt_branch,
+                ref ff_branch,
+                ref out_type,
+            }=> {
+                write!(fmt, "bool_elim (")?;
+                let var = choose_var(ctx.len());
+                write!(fmt, "\\ {}: Bool -> ", var)?;
+                ctx.push(var);
+                out_type.pretty(fmt, ctx)?;
+                ctx.pop();
+                write!(fmt, ") (")?;
+                tt_branch.pretty(fmt, ctx)?;
+                write!(fmt, ") (")?;
+                ff_branch.pretty(fmt, ctx)?;
+                write!(fmt, ") (")?;
+                condition.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+
+            IntroLambda { ref in_type, ref body } => {
+                let var = choose_var(ctx.len());
+                write!(fmt, "\\{}: ", var)?;
+                in_type.pretty(fmt, ctx)?;
+                write!(fmt, " -> ")?;
+                ctx.push(var);
+                body.pretty(fmt, ctx)?;
+                ctx.pop();
+            },
+            ElimApplication { ref function, ref argument } => {
+                write!(fmt, "(")?;
+                function.pretty(fmt, ctx)?;
+                write!(fmt, ") (")?;
+                argument.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+
+            IntroPair { ref fst, ref snd, .. } => {
+                write!(fmt, "<<")?;
+                fst.pretty(fmt, ctx)?;
+                write!(fmt, ", ")?;
+                snd.pretty(fmt, ctx)?;
+                write!(fmt, ">>")?;
+            },
+            ElimFst { ref pair } => {
+                write!(fmt, "p1 (")?;
+                pair.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+            ElimSnd { ref pair } => {
+                write!(fmt, "p2 (")?;
+                pair.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+
+            IntroType(ref ty) => {
+                ty.pretty(fmt, ctx)?;
+            },
+
+            SpecialFix { ref generator } => {
+                write!(fmt, "fix (")?;
+                generator.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+        }
+        Ok(())
+    }
+}
+
+impl Type {
+    fn pretty(self: &Self, fmt: &mut fmt::Formatter, ctx: &mut Vec<String>)
+        -> Result<(), fmt::Error> {
+        use self::Type::*;
+        match *self {
+            Void => {
+                write!(fmt, "Void")?;
+            },
+            Unit => {
+                write!(fmt, "Unit")?;
+            },
+            Bool => {
+                write!(fmt, "Bool")?;
+            },
+
+            Pi { ref domain, ref codomain } => {
+                let var = choose_var(ctx.len());
+                write!(fmt, "Pi {}: ", var)?;
+                domain.pretty(fmt, ctx)?;
+                write!(fmt, ", ")?;
+                ctx.push(var);
+                codomain.pretty(fmt, ctx)?;
+                ctx.pop();
+            },
+
+            Sigma { ref fst_type, ref snd_type } => {
+                let var = choose_var(ctx.len());
+                write!(fmt, "Sigma {}: ", var)?;
+                fst_type.pretty(fmt, ctx)?;
+                write!(fmt, ", ")?;
+                ctx.push(var);
+                snd_type.pretty(fmt, ctx)?;
+                ctx.pop();
+            },
+
+            Universe => {
+                write!(fmt, "Type")?;
+            },
+        }
+        Ok(())
     }
 }
 
