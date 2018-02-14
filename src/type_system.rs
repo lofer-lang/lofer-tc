@@ -521,5 +521,10 @@ mod tests {
             ))
         )
     }
+
+    #[test]
+    fn inductive_types() {
+        unimplemented!();
+    }
 }
 

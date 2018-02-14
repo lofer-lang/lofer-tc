@@ -459,3 +459,21 @@ pub fn universe() -> Expression {
     simple_type(Type::Universe)
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn equality() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn coinductive_equality() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn pretty_printing() {
+        unimplemented!();
+    }
+
+
