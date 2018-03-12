@@ -4,19 +4,7 @@ use std::fmt;
 pub enum Expression {
     Variable(usize), // variables should be indexed from the end of the list?
 
-    IntroPoint,
-
-    IntroTT,
-    IntroFF,
-    ElimIf {
-        condition: Box<Expression>,
-        tt_branch: Box<Expression>,
-        ff_branch: Box<Expression>,
-        out_type: Box<Expression>,
-    },
-
     IntroLambda {
-        in_type: Box<Expression>,
         body: Box<Expression>,
     },
     ElimApplication {
@@ -24,29 +12,16 @@ pub enum Expression {
         argument: Box<Expression>,
     },
 
-    IntroPair {
-        fst: Box<Expression>,
-        snd: Box<Expression>,
-        snd_type: Box<Expression>,
-    },
-    ElimFst {
-        pair: Box<Expression>,
-    },
-    ElimSnd {
-        pair: Box<Expression>,
-    },
+    IntroPoint,
+
+    IntroTT,
+    IntroFF,
+    ElimIf,
+
+    IntroPair,
+    ElimUncurry,
 
     IntroType(Box<Type>),
-    // type eliminator one day :o
-
-    // can be used to make `fix f = f (fix f)`, the fixpoint combinator
-    // i.e. forall a: Type, (a -> a) -> a
-    // which is useful for recursive types and functions
-    // factorial = fix (\fact -> \x -> x * fact (x - 1))
-    SpecialFix {
-        // is_co: bool,  // is this necessary?
-        generator: Box<Expression>,
-    },
 }
 
 /*
@@ -113,6 +88,44 @@ impl Expression {
                 }
             },
 
+            IntroLambda { ref body } => {
+                let var = choose_var(ctx.len());
+                write!(fmt, "\\{} -> ", var)?;
+                ctx.push(var);
+                body.pretty(fmt, ctx)?;
+                ctx.pop();
+            },
+            ElimApplication { ref function, ref argument } => {
+                let first_brackets = match **function {
+                    IntroLambda { .. } => true,
+                    _ => false,
+                };
+
+                let second_brackets = match **argument {
+                    IntroLambda { .. } => true,
+                    ElimApplication { .. } => true,
+                    _ => false,
+                };
+
+                if first_brackets {
+                    write!(fmt, "(")?;
+                }
+                function.pretty(fmt, ctx)?;
+                if first_brackets {
+                    write!(fmt, ")")?;
+                }
+
+                write!(fmt, " ")?;
+
+                if second_brackets {
+                    write!(fmt, "(")?;
+                }
+                argument.pretty(fmt, ctx)?;
+                if second_brackets {
+                    write!(fmt, ")")?;
+                }
+            },
+
             IntroPoint => {
                 write!(fmt, "<>")?;
             },
@@ -123,64 +136,19 @@ impl Expression {
             IntroFF => {
                 write!(fmt, "false")?;
             },
-            ElimIf {
-                ref condition,
-                ref tt_branch,
-                ref ff_branch,
-                ..
-            }=> {
-
-                write!(fmt, "if ")?;
-                condition.pretty(fmt, ctx)?;
-                write!(fmt, " then ")?;
-                tt_branch.pretty(fmt, ctx)?;
-                write!(fmt, " else ")?;
-                ff_branch.pretty(fmt, ctx)?;
+            ElimIf => {
+                write!(fmt, "bool_elim")?;
             },
 
-            IntroLambda { ref in_type, ref body } => {
-                let var = choose_var(ctx.len());
-                write!(fmt, "\\{}: ", var)?;
-                in_type.pretty(fmt, ctx)?;
-                write!(fmt, " -> ")?;
-                ctx.push(var);
-                body.pretty(fmt, ctx)?;
-                ctx.pop();
+            IntroPair => {
+                write!(fmt, "Pair")?;
             },
-            ElimApplication { ref function, ref argument } => {
-                write!(fmt, "(")?;
-                function.pretty(fmt, ctx)?;
-                write!(fmt, ") (")?;
-                argument.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
-            },
-
-            IntroPair { ref fst, ref snd, .. } => {
-                write!(fmt, "<<")?;
-                fst.pretty(fmt, ctx)?;
-                write!(fmt, ", ")?;
-                snd.pretty(fmt, ctx)?;
-                write!(fmt, ">>")?;
-            },
-            ElimFst { ref pair } => {
-                write!(fmt, "p1 (")?;
-                pair.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
-            },
-            ElimSnd { ref pair } => {
-                write!(fmt, "p2 (")?;
-                pair.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
+            ElimUncurry => {
+                write!(fmt, "uncurry")?;
             },
 
             IntroType(ref ty) => {
                 ty.pretty(fmt, ctx)?;
-            },
-
-            SpecialFix { ref generator } => {
-                write!(fmt, "fix (")?;
-                generator.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
             },
         }
         Ok(())
@@ -252,21 +220,19 @@ pub fn if_then_else(
     condition: Expression,
     tt_branch: Expression,
     ff_branch: Expression,
-    out_type: Expression,
 ) -> Expression {
-    let condition = Box::new(condition);
-    let tt_branch = Box::new(tt_branch);
-    let ff_branch = Box::new(ff_branch);
-    let out_type = Box::new(out_type);
-    Expression::ElimIf { condition, tt_branch, ff_branch, out_type }
+    let result = Expression::ElimIf;
+    let result = apply(result, tt_branch);
+    let result = apply(result, ff_branch);
+    let result = apply(result, condition);
+    result
 }
 
-pub fn lambda(in_type: Expression, body: Expression)
+pub fn lambda(body: Expression)
     -> Expression
 {
-    let in_type = Box::new(in_type);
     let body = Box::new(body);
-    Expression::IntroLambda { in_type, body }
+    Expression::IntroLambda { body }
 }
 
 pub fn apply(function: Expression, argument: Expression) -> Expression {
@@ -276,31 +242,22 @@ pub fn apply(function: Expression, argument: Expression) -> Expression {
 }
 
 // see if-then-else on the subject of type inference
-pub fn pair(fst: Expression, snd: Expression, snd_type: Expression) -> Expression {
-    let fst = Box::new(fst);
-    let snd = Box::new(snd);
-    let snd_type = Box::new(snd_type);
-    Expression::IntroPair { fst, snd, snd_type }
+pub fn pair(fst: Expression, snd: Expression) -> Expression {
+    let result = Expression::IntroPair;
+    let result = apply(result, fst);
+    let result = apply(result, snd);
+    result
 }
 
-pub fn fst(pair: Expression) -> Expression {
-    let pair = Box::new(pair);
-    Expression::ElimFst { pair }
-}
-
-pub fn snd(pair: Expression) -> Expression {
-    let pair = Box::new(pair);
-    Expression::ElimSnd { pair }
+pub fn uncurry(fun: Expression) -> Expression {
+    let result = Expression::ElimUncurry;
+    let result = apply(result, fun);
+    result
 }
 
 pub fn simple_type(typ: Type) -> Expression {
     let typ = Box::new(typ);
     Expression::IntroType(typ)
-}
-
-pub fn fix(generator: Expression) -> Expression {
-    let generator = Box::new(generator);
-    Expression::SpecialFix { generator }
 }
 
 pub fn void() -> Expression {
