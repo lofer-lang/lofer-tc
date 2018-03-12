@@ -2,18 +2,7 @@ use std::fmt;
 
 #[derive(Clone, PartialEq)]
 pub enum Expression {
-    Variable(usize), // variables should be indexed from the end of the list?
-
-    IntroPoint,
-
-    IntroTT,
-    IntroFF,
-    ElimIf {
-        condition: Box<Expression>,
-        tt_branch: Box<Expression>,
-        ff_branch: Box<Expression>,
-        out_type: Box<Expression>,
-    },
+    Variable(usize),
 
     IntroLambda {
         in_type: Box<Expression>,
@@ -22,6 +11,20 @@ pub enum Expression {
     ElimApplication {
         function: Box<Expression>,
         argument: Box<Expression>,
+    },
+
+    ElimAbsurd,
+
+    IntroPoint,
+    ElimTrivial,
+
+    IntroTT,
+    IntroFF,
+    ElimIf {
+        condition: Box<Expression>,
+        tt_branch: Box<Expression>,
+        ff_branch: Box<Expression>,
+        out_type: Box<Expression>,
     },
 
     IntroPair {
@@ -37,7 +40,6 @@ pub enum Expression {
     },
 
     IntroType(Box<Type>),
-    // type eliminator one day :o
 
     // can be used to make `fix f = f (fix f)`, the fixpoint combinator
     // i.e. forall a: Type, (a -> a) -> a
@@ -96,8 +98,32 @@ impl Expression {
                 }
             },
 
+            IntroLambda { ref in_type, ref body } => {
+                let var = choose_var(ctx.len());
+                write!(fmt, "\\{}: ", var)?;
+                in_type.pretty(fmt, ctx)?;
+                write!(fmt, " -> ")?;
+                ctx.push(var);
+                body.pretty(fmt, ctx)?;
+                ctx.pop();
+            },
+            ElimApplication { ref function, ref argument } => {
+                write!(fmt, "(")?;
+                function.pretty(fmt, ctx)?;
+                write!(fmt, ") (")?;
+                argument.pretty(fmt, ctx)?;
+                write!(fmt, ")")?;
+            },
+
+            ElimAbsurd => {
+                write!(fmt, "absurd")?;
+            },
+
             IntroPoint => {
                 write!(fmt, "<>")?;
+            },
+            ElimTrivial => {
+                write!(fmt, "trivial")?;
             },
 
             IntroTT => {
@@ -119,23 +145,6 @@ impl Expression {
                 tt_branch.pretty(fmt, ctx)?;
                 write!(fmt, " else ")?;
                 ff_branch.pretty(fmt, ctx)?;
-            },
-
-            IntroLambda { ref in_type, ref body } => {
-                let var = choose_var(ctx.len());
-                write!(fmt, "\\{}: ", var)?;
-                in_type.pretty(fmt, ctx)?;
-                write!(fmt, " -> ")?;
-                ctx.push(var);
-                body.pretty(fmt, ctx)?;
-                ctx.pop();
-            },
-            ElimApplication { ref function, ref argument } => {
-                write!(fmt, "(")?;
-                function.pretty(fmt, ctx)?;
-                write!(fmt, ") (")?;
-                argument.pretty(fmt, ctx)?;
-                write!(fmt, ")")?;
             },
 
             IntroPair { ref fst, ref snd, .. } => {
