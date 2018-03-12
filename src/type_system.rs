@@ -1,14 +1,18 @@
 use expressions::*;
-use substitution::deepen;
+
+type TypeCheckError = ();
 
 pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
     -> Result<Expression, TypeCheckError>
 {
+    unimplemented!();
+}
+/*
     use expressions::Expression::*;
     match *expr {
-        Variable(mut i) => {
-            i += 1;
-            Ok(deepen(&ctx[ctx.len() - i], i, 0))
+        Variable(i) => {
+            // was deepen but need to change to named variables
+            unimplemented!();
         },
 
         IntroPoint => {
@@ -104,9 +108,11 @@ fn assert_type(
     expected: &Expression,
 ) -> Result<(), TypeError> {
     let actual = type_check(ctx, val)?;
-    let actual = actual.reduce_lazy();
-    let expected = expected.reduce_lazy();
+    //let actual = actual.reduce_lazy();
+    //let expected = expected.reduce_lazy();
+    let expected = expected.clone();
     if actual == expected {
+        unimplemented!();
         Ok(())
     } else {
         Err(TypeError::Mismatch { expected, actual })
@@ -317,6 +323,7 @@ pub enum TypeCheckFixError {
         codomain: Expression,
     },
 }
+*/
 
 #[cfg(test)]
 mod tests {

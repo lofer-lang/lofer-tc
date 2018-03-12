@@ -1,9 +1,9 @@
-use expressions::*;
+use programs::*;
 
 pub fn substitute(expr: &Expression, i: usize, value: &Expression)
     -> Expression
 {
-    use expressions::Expression::*;
+    use programs::Expression::*;
     match *expr {
         Variable(m) => {
             if m > i {
@@ -15,26 +15,9 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
             }
         },
 
-        IntroPoint | IntroTT | IntroFF => {
-            expr.clone()
-        },
-        ElimIf {
-            ref condition,
-            ref tt_branch,
-            ref ff_branch,
-            ref out_type,
-        } => {
-            let condition = substitute(condition, i, value);
-            let tt_branch = substitute(tt_branch, i, value);
-            let ff_branch = substitute(ff_branch, i, value);
-            let out_type = substitute(out_type, i+1, value);
-            if_then_else(condition, tt_branch, ff_branch, out_type)
-        },
-
-        IntroLambda { ref in_type, ref body } => {
-            let in_type = substitute(in_type, i, value);
+        IntroLambda { ref body } => {
             let body = substitute(body, i+1, value);
-            lambda(in_type, body)
+            lambda(body)
         },
         ElimApplication { ref function, ref argument } => {
             let function = substitute(function, i, value);
@@ -42,23 +25,8 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
             apply(function, argument)
         },
 
-        IntroPair { ref fst, ref snd, ref snd_type } => {
-            let fst = substitute(fst, i, value);
-            let snd = substitute(snd, i, value);
-            let snd_type = substitute(snd_type, i+1, value);
-            pair(fst, snd, snd_type)
-        },
-        ElimFst { ref pair } => {
-            let pair = substitute(pair, i, value);
-            fst(pair)
-        },
-        ElimSnd { ref pair } => {
-            let pair = substitute(pair, i, value);
-            snd(pair)
-        },
-
         IntroType(ref typ) => {
-            use expressions::Type::*;
+            use programs::Type::*;
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {
@@ -74,17 +42,14 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
             }
         },
 
-        SpecialFix { ref generator } => {
-            let generator = substitute(generator, i, value);
-            fix(generator)
-        },
+        _ => expr.clone(),
     }
 }
 
 pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
     -> Expression
 {
-    use expressions::Expression::*;
+    use programs::Expression::*;
     match *expr {
         Variable(n) => {
             if n < current_offset {
@@ -95,26 +60,9 @@ pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
             }
         },
 
-        IntroPoint | IntroTT | IntroFF => {
-            expr.clone()
-        },
-        ElimIf {
-            ref condition,
-            ref tt_branch,
-            ref ff_branch,
-            ref out_type,
-        } => {
-            let condition = deepen(condition, extra_depth, current_offset);
-            let tt_branch = deepen(tt_branch, extra_depth, current_offset);
-            let ff_branch = deepen(ff_branch, extra_depth, current_offset);
-            let out_type = deepen(out_type, extra_depth, current_offset + 1);
-            if_then_else(condition, tt_branch, ff_branch, out_type)
-        },
-
-        IntroLambda { ref in_type, ref body } => {
-            let in_type = deepen(in_type, extra_depth, current_offset);
+        IntroLambda { ref body } => {
             let body = deepen(body, extra_depth, current_offset + 1);
-            lambda(in_type, body)
+            lambda(body)
         },
         ElimApplication { ref function, ref argument } => {
             let function = deepen(function, extra_depth, current_offset);
@@ -122,23 +70,8 @@ pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
             apply(function, argument)
         },
 
-        IntroPair { ref fst, ref snd, ref snd_type } => {
-            let fst = deepen(fst, extra_depth, current_offset);
-            let snd = deepen(snd, extra_depth, current_offset);
-            let snd_type = deepen(snd_type, extra_depth, current_offset + 1);
-            pair(fst, snd, snd_type)
-        },
-        ElimFst { ref pair } => {
-            let pair = deepen(pair, extra_depth, current_offset);
-            fst(pair)
-        },
-        ElimSnd { ref pair } => {
-            let pair = deepen(pair, extra_depth, current_offset);
-            snd(pair)
-        },
-
         IntroType(ref typ) => {
-            use expressions::Type::*;
+            use programs::Type::*;
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {
@@ -157,10 +90,7 @@ pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
             }
         },
 
-        SpecialFix { ref generator } => {
-            let generator = deepen(generator, extra_depth, current_offset);
-            fix(generator)
-        },
+        _ => expr.clone(),
     }
 }
 

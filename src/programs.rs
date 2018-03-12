@@ -1,5 +1,8 @@
 use std::fmt;
 
+use eval::reduce;
+use substitution::substitute;
+
 #[derive(Clone, PartialEq)]
 pub enum Expression {
     Variable(usize), // variables should be indexed from the end of the list?
@@ -24,7 +27,6 @@ pub enum Expression {
     IntroType(Box<Type>),
 }
 
-/*
 impl Expression {
     pub fn substitute(self: &Self, var: &Self) -> Self {
         substitute(self, 0, var)
@@ -37,7 +39,6 @@ impl Expression {
         reduce(self, true)
     }
 }
-*/
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Type {

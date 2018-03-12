@@ -1,9 +1,44 @@
-use expressions::*;
+use programs::*;
 
 pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
-    use expressions::Expression::*;
+    use programs::Expression::*;
     match *expr {
-        Variable(_) | IntroPoint | IntroTT | IntroFF => expr.clone(),
+        IntroLambda { ref body } => {
+            let body = reduce(body, false);
+            lambda(body)
+        },
+        ElimApplication { ref function, ref argument } => {
+            let function = reduce(function, is_strict);
+            if let IntroLambda { body, .. } = function {
+                let result = body.substitute(argument);
+                // ooo a tail call
+                reduce(&result, is_strict)
+            } else {
+                unimplemented!();
+                let argument = reduce(argument, is_strict);
+                apply(function, argument)
+            }
+        },
+
+        IntroType(ref typ) => {
+            use programs::Type::*;
+            match **typ {
+                Void | Unit | Bool | Universe => expr.clone(),
+                Pi { ref domain, ref codomain } => {
+                    let domain = reduce(domain, is_strict);
+                    let codomain = reduce(codomain, is_strict);
+                    pi(domain, codomain)
+                },
+                Sigma { ref fst_type, ref snd_type } => {
+                    let fst_type = reduce(fst_type, is_strict);
+                    let snd_type = reduce(snd_type, is_strict);
+                    sigma(fst_type, snd_type)
+                },
+            }
+        },
+
+        _ => expr.clone(),
+        /*
         ElimIf {
             ref condition,
             ref tt_branch,
@@ -23,22 +58,6 @@ pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
             }
         },
 
-        IntroLambda { ref in_type, ref body } => {
-            let in_type = reduce(in_type, false);
-            let body = reduce(body, false);
-            lambda(in_type, body)
-        },
-        ElimApplication { ref function, ref argument } => {
-            let function = reduce(function, is_strict);
-            if let IntroLambda { body, .. } = function {
-                let result = body.substitute(argument);
-                // ooo a tail call
-                reduce(&result, is_strict)
-            } else {
-                let argument = reduce(argument, is_strict);
-                apply(function, argument)
-            }
-        },
 
         IntroPair { ref fst, ref snd, ref snd_type } => {
             let fst = reduce(fst, is_strict);
@@ -63,22 +82,6 @@ pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
             }
         },
 
-        IntroType(ref typ) => {
-            use expressions::Type::*;
-            match **typ {
-                Void | Unit | Bool | Universe => expr.clone(),
-                Pi { ref domain, ref codomain } => {
-                    let domain = reduce(domain, is_strict);
-                    let codomain = reduce(codomain, is_strict);
-                    pi(domain, codomain)
-                },
-                Sigma { ref fst_type, ref snd_type } => {
-                    let fst_type = reduce(fst_type, is_strict);
-                    let snd_type = reduce(snd_type, is_strict);
-                    sigma(fst_type, snd_type)
-                },
-            }
-        },
 
         SpecialFix { ref generator } => {
             let generator = reduce(generator, false);
@@ -90,6 +93,7 @@ pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
                 fix(generator)
             }
         },
+    */
     }
 }
 

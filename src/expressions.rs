@@ -1,9 +1,6 @@
 use std::fmt;
 
-use eval::reduce;
-use substitution::substitute;
-
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Expression {
     Variable(usize), // variables should be indexed from the end of the list?
 
@@ -52,19 +49,6 @@ pub enum Expression {
     },
 }
 
-impl Expression {
-    pub fn substitute(self: &Self, var: &Self) -> Self {
-        substitute(self, 0, var)
-    }
-
-    pub fn reduce_lazy(self: &Self) -> Self {
-        reduce(self, false)
-    }
-    pub fn reduce_strict(self: &Self) -> Self {
-        reduce(self, true)
-    }
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     Void,
@@ -79,133 +63,6 @@ pub enum Type {
         snd_type: Box<Expression>,
     },
     Universe/*(usize)*/,
-}
-
-// compares `fix(gen_l)` with `other`, by expanding the fix once and reducing
-fn compare_fix(generator: &Expression, right: &Expression) -> bool {
-    let left = apply(generator.clone(), fix(generator.clone()));
-    let left = left.reduce_lazy();
-    left == *right
-}
-
-
-impl PartialEq for Expression {
-    fn eq(self: &Self, other: &Self) -> bool {
-        use self::Expression::*;
-        match (self, other) {
-            (&SpecialFix { generator: ref gen_l },
-             &SpecialFix { generator: ref gen_r }) => {
-                gen_l == gen_r
-            },
-            (&SpecialFix { ref generator }, _) => {
-                compare_fix(generator, other)
-            },
-            (_, &SpecialFix { ref generator }) => {
-                compare_fix(generator, self)
-            },
-
-            // the rest are all really boring... exactly like #[derive()]
-            (&Variable(n), &Variable(m)) => n == m,
-
-            (&IntroPoint, &IntroPoint) => true,
-
-            (&IntroTT, &IntroTT) => true,
-            (&IntroFF, &IntroFF) => true,
-            (
-                &ElimIf {
-                    condition: ref l_con,
-                    tt_branch: ref l_tt,
-                    ff_branch: ref l_ff,
-                    out_type: ref l_out,
-                },
-                &ElimIf {
-                    condition: ref r_con,
-                    tt_branch: ref r_tt,
-                    ff_branch: ref r_ff,
-                    out_type: ref r_out,
-                },
-            ) => {
-                let con_eq = l_con == r_con;
-                let tt_eq = l_tt == r_tt;
-                let ff_eq = l_ff == r_ff;
-                let out_eq = l_out == r_out;
-                con_eq && tt_eq && ff_eq && out_eq
-            },
-
-            (
-                &IntroLambda {
-                    in_type: ref l_in,
-                    body: ref l_body,
-                },
-                &IntroLambda {
-                    in_type: ref r_in,
-                    body: ref r_body,
-                },
-            ) => {
-                let in_eq = l_in == r_in;
-                let body_eq = l_body == r_body;
-                in_eq && body_eq
-            },
-            (
-                &ElimApplication {
-                    function: ref l_fun,
-                    argument: ref l_arg,
-                },
-                &ElimApplication {
-                    function: ref r_fun,
-                    argument: ref r_arg,
-                },
-            ) => {
-                let fun_eq = l_fun == r_fun;
-                let arg_eq = l_arg == r_arg;
-                fun_eq && arg_eq
-            },
-
-            (
-                &IntroPair {
-                    fst: ref l_fst,
-                    snd: ref l_snd,
-                    snd_type: ref l_st,
-                },
-                &IntroPair {
-                    fst: ref r_fst,
-                    snd: ref r_snd,
-                    snd_type: ref r_st,
-                },
-            ) => {
-                let fst_eq = l_fst == r_fst;
-                let snd_eq = l_snd == r_snd;
-                let st_eq = l_st == r_st;
-                fst_eq && snd_eq && st_eq
-            },
-            (
-                &ElimFst {
-                    pair: ref l_pair,
-                },
-                &ElimFst {
-                    pair: ref r_pair,
-                },
-            ) => {
-                l_pair == r_pair
-            },
-            (
-                &ElimSnd {
-                    pair: ref l_pair,
-                },
-                &ElimSnd {
-                    pair: ref r_pair,
-                },
-            ) => {
-                l_pair == r_pair
-            },
-
-            (&IntroType(ref l_ty), &IntroType(ref r_ty)) => {
-                l_ty == r_ty
-            },
-
-            (_, _) => false,
-        }
-    }
 }
 
 impl fmt::Debug for Expression {
