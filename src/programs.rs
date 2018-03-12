@@ -1,6 +1,5 @@
 use std::fmt;
 
-use eval::reduce;
 use substitution::substitute;
 
 #[derive(Clone, PartialEq)]
@@ -30,14 +29,6 @@ pub enum Expression {
 impl Expression {
     pub fn substitute(self: &Self, var: &Self) -> Self {
         substitute(self, 0, var)
-    }
-
-    // reduce to WHNF, not reducing inside pair constructors
-    pub fn weak_reduce(self: Self) -> Self {
-        reduce(self, false)
-    }
-    pub fn reduce(self: Self) -> Self {
-        reduce(self, true)
     }
 }
 

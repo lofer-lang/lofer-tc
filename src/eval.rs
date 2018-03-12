@@ -20,18 +20,44 @@ fn get_args_helper<'a>(expr: &'a Expression, mut args: Vec<&'a Expression>)
     }
 }
 
-// full reduction means reduce the terms inside pair introes
-// the alternative is head reduction which is lazy
-pub fn reduce(expr: Expression, full_reduction: bool) -> Expression {
-    let (mut fun, args) = reduce_args(expr, full_reduction);
+impl Expression {
+    // reduces to WHNF
+    pub fn reduce_weak(self: Expression) -> Expression {
+        let (fun, args) = reduce_args(self);
+        reapply_args(fun, args)
+    }
 
+    // further reduces data into BNF, and reduces lambdas into HNF why not
+    // implementation quirk:
+    //   pairs in lambdas get further reduced,
+    //   as do lambdas in pairs
+    // e.g. \x -> Pair a (\y -> const x x)
+    //   would reduce to \x -> Pair a (\y -> x)
+    pub fn reduce(self: Expression) -> Expression {
+        let (fun, mut args) = reduce_args(self);
+        if fun == Expression::IntroPair {
+            args = args
+                .into_iter()
+                .map(Expression::reduce)
+                .collect();
+        } else if let Expression::IntroLambda { body } = fun {
+            // return because args must be empty anyway
+            return lambda(body.reduce());
+        }
+        reapply_args(fun, args)
+    }
+}
+
+fn reapply_args(mut fun: Expression, args: VecDeque<Expression>)
+    -> Expression
+{
     for arg in args {
         fun = apply(fun, arg);
     }
     fun
 }
 
-pub fn reduce_args(mut fun: Expression, full_reduction: bool)
+fn reduce_args(mut fun: Expression)
     -> (Expression, VecDeque<Expression>)
 {
     let mut args = VecDeque::new();
@@ -57,7 +83,7 @@ pub fn reduce_args(mut fun: Expression, full_reduction: bool)
                     let ff_branch = args.pop_front().unwrap();
                     let condition = args.pop_front().unwrap();
 
-                    let condition = reduce(condition, false);
+                    let condition = condition.reduce_weak();
                     if condition == IntroTT {
                         fun = tt_branch;
                     } else if condition == IntroFF {
@@ -78,8 +104,10 @@ pub fn reduce_args(mut fun: Expression, full_reduction: bool)
                     let function = args.pop_front().unwrap();
                     let pair = args.pop_front().unwrap();
 
-                    let (rule, mut terms) = reduce_args(pair, false);
+                    let (rule, mut terms) = reduce_args(pair);
                     if rule == IntroPair && terms.len() == 2 {
+                        // reduces `uncurry f (Pair x y) z...`
+                        // into `f x y z...`
                         fun = function;
 
                         terms.append(&mut args);
@@ -92,15 +120,6 @@ pub fn reduce_args(mut fun: Expression, full_reduction: bool)
                 }
             },
 
-            IntroPair => {
-                if full_reduction {
-                    args = args
-                        .into_iter()
-                        .map(|arg| reduce(arg, true))
-                        .collect();
-                }
-                break;
-            },
             _ => break,
         }
     }
