@@ -27,12 +27,7 @@ impl Expression {
         reapply_args(fun, args)
     }
 
-    // further reduces data into BNF, and reduces lambdas into HNF why not
-    // implementation quirk:
-    //   pairs in lambdas get further reduced,
-    //   as do lambdas in pairs
-    // e.g. \x -> Pair a (\y -> const x x)
-    //   would reduce to \x -> Pair a (\y -> x)
+    // further reduces data, but not functions
     pub fn reduce(self: Expression) -> Expression {
         let (fun, mut args) = reduce_args(self);
         if fun == Expression::IntroPair {
@@ -40,9 +35,11 @@ impl Expression {
                 .into_iter()
                 .map(Expression::reduce)
                 .collect();
+        /*
         } else if let Expression::IntroLambda { body } = fun {
             // return because args must be empty anyway
             return lambda(body.reduce());
+        */
         }
         reapply_args(fun, args)
     }
