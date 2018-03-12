@@ -1,100 +1,110 @@
+use std::collections::VecDeque;
+
 use programs::*;
 
-pub fn reduce(expr: &Expression, is_strict: bool) -> Expression {
+fn get_args(expr: &Expression) -> (&Expression, Vec<&Expression>) {
+    let (fun, mut args) = get_args_helper(expr, Vec::new());
+    args.reverse();
+    (fun, args)
+}
+
+fn get_args_helper<'a>(expr: &'a Expression, mut args: Vec<&'a Expression>)
+    -> (&'a Expression, Vec<&'a Expression>)
+{
     use programs::Expression::*;
-    match *expr {
-        IntroLambda { ref body } => {
-            let body = reduce(body, false);
-            lambda(body)
-        },
-        ElimApplication { ref function, ref argument } => {
-            let function = reduce(function, is_strict);
-            if let IntroLambda { body, .. } = function {
-                let result = body.substitute(argument);
-                // ooo a tail call
-                reduce(&result, is_strict)
-            } else {
-                unimplemented!();
-                let argument = reduce(argument, is_strict);
-                apply(function, argument)
-            }
-        },
-
-        IntroType(ref typ) => {
-            use programs::Type::*;
-            match **typ {
-                Void | Unit | Bool | Universe => expr.clone(),
-                Pi { ref domain, ref codomain } => {
-                    let domain = reduce(domain, is_strict);
-                    let codomain = reduce(codomain, is_strict);
-                    pi(domain, codomain)
-                },
-                Sigma { ref fst_type, ref snd_type } => {
-                    let fst_type = reduce(fst_type, is_strict);
-                    let snd_type = reduce(snd_type, is_strict);
-                    sigma(fst_type, snd_type)
-                },
-            }
-        },
-
-        _ => expr.clone(),
-        /*
-        ElimIf {
-            ref condition,
-            ref tt_branch,
-            ref ff_branch,
-            ref out_type,
-        } => {
-            let condition = reduce(condition, is_strict);
-            if let IntroTT = condition {
-                reduce(tt_branch, is_strict)
-            } else if let IntroFF = condition {
-                reduce(ff_branch, is_strict)
-            } else {
-                let tt_branch = reduce(tt_branch, false);
-                let ff_branch = reduce(ff_branch, false);
-                let out_type = reduce(out_type, false);
-                if_then_else(condition, tt_branch, ff_branch, out_type)
-            }
-        },
-
-
-        IntroPair { ref fst, ref snd, ref snd_type } => {
-            let fst = reduce(fst, is_strict);
-            let snd = reduce(snd, is_strict);
-            let snd_type = reduce(snd_type, false);
-            pair(fst, snd, snd_type)
-        },
-        ElimFst { ref pair } => {
-            let pair = reduce(pair, is_strict);
-            if let IntroPair { fst, .. } = pair {
-                *fst
-            } else {
-                fst(pair)
-            }
-        },
-        ElimSnd { ref pair } => {
-            let pair = reduce(pair, is_strict);
-            if let IntroPair { snd, .. } = pair {
-                reduce(&*snd, is_strict)
-            } else {
-                snd(pair)
-            }
-        },
-
-
-        SpecialFix { ref generator } => {
-            let generator = reduce(generator, false);
-            if is_strict {
-                let fixed_point = fix(generator.clone());
-                let expr = apply(generator, fixed_point);
-                reduce(&expr, true)
-            } else {
-                fix(generator)
-            }
-        },
-    */
+    if let ElimApplication { ref function, ref argument } = *expr {
+        args.push(argument);
+        get_args_helper(function, args)
+    } else {
+        (expr, args)
     }
+}
+
+// full reduction means reduce the terms inside pair introes
+// the alternative is head reduction which is lazy
+pub fn reduce(expr: Expression, full_reduction: bool) -> Expression {
+    let (mut fun, args) = reduce_args(expr, full_reduction);
+
+    for arg in args {
+        fun = apply(fun, arg);
+    }
+    fun
+}
+
+pub fn reduce_args(mut fun: Expression, full_reduction: bool)
+    -> (Expression, VecDeque<Expression>)
+{
+    let mut args = VecDeque::new();
+    loop {
+        use programs::Expression::*;
+        match fun {
+            ElimApplication { function, argument } => {
+                fun = *function;
+                args.push_front(*argument);
+            },
+            IntroLambda { body } => {
+                if let Some(arg) = args.pop_front() {
+                    fun = body.substitute(&arg);
+                } else {
+                    // back-track
+                    fun = IntroLambda { body };
+                    break;
+                }
+            },
+            ElimIf => {
+                if args.len() >= 3 {
+                    let tt_branch = args.pop_front().unwrap();
+                    let ff_branch = args.pop_front().unwrap();
+                    let condition = args.pop_front().unwrap();
+
+                    let condition = reduce(condition, false);
+                    if condition == IntroTT {
+                        fun = tt_branch;
+                    } else if condition == IntroFF {
+                        fun = ff_branch;
+                    } else {
+                        // condition can't normalize, move on
+                        fun = apply(fun, tt_branch);
+                        fun = apply(fun, ff_branch);
+                        fun = apply(fun, condition);
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            },
+            ElimUncurry => {
+                if args.len() >= 2 {
+                    let function = args.pop_front().unwrap();
+                    let pair = args.pop_front().unwrap();
+
+                    let (rule, mut terms) = reduce_args(pair, false);
+                    if rule == IntroPair && terms.len() == 2 {
+                        fun = function;
+
+                        terms.append(&mut args);
+                        args = terms;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            },
+
+            IntroPair => {
+                if full_reduction {
+                    args = args
+                        .into_iter()
+                        .map(|arg| reduce(arg, true))
+                        .collect();
+                }
+                break;
+            },
+            _ => break,
+        }
+    }
+    (fun, args)
 }
 
 #[cfg(test)]

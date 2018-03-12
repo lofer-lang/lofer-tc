@@ -32,10 +32,11 @@ impl Expression {
         substitute(self, 0, var)
     }
 
-    pub fn reduce_lazy(self: &Self) -> Self {
+    // reduce to WHNF, not reducing inside pair constructors
+    pub fn weak_reduce(self: Self) -> Self {
         reduce(self, false)
     }
-    pub fn reduce_strict(self: &Self) -> Self {
+    pub fn reduce(self: Self) -> Self {
         reduce(self, true)
     }
 }
