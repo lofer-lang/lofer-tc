@@ -59,28 +59,28 @@ impl Expression {
         reapply_args(fun, args)
     }
 
-    fn reduces_to(self: Self, mut other_fun: Self) -> bool {
-        if self == other_fun {
+    fn reduces_to(mut self: Self, other: Self) -> bool {
+        if self == other {
             return true;
         }
 
-        let (self_fun, self_args) = get_args(self, VecDeque::new());
-        let mut other_args = VecDeque::new();
+        let (other, other_args) = get_args(other, VecDeque::new());
+        let mut self_args = VecDeque::new();
 
         loop {
             if recurse_reduction_check(
-                &self_fun,
+                &self,
                 &self_args,
-                &other_fun,
+                &other,
                 &other_args,
             ) {
                 return true;
             }
 
             let (new_fun, new_args, did_reduction) =
-                reduce_args_once(other_fun, other_args);
-            other_fun = new_fun;
-            other_args = new_args;
+                reduce_args_once(self, self_args);
+            self = new_fun;
+            self_args = new_args;
 
             if !did_reduction {
                 return false;
