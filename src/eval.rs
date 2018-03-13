@@ -2,22 +2,37 @@ use std::collections::VecDeque;
 
 use programs::*;
 
-fn get_args(expr: &Expression) -> (&Expression, Vec<&Expression>) {
-    let (fun, mut args) = get_args_helper(expr, Vec::new());
-    args.reverse();
-    (fun, args)
-}
-
-fn get_args_helper<'a>(expr: &'a Expression, mut args: Vec<&'a Expression>)
-    -> (&'a Expression, Vec<&'a Expression>)
+fn get_args(mut expr: Expression, mut args: VecDeque<Expression>)
+    -> (Expression, VecDeque<Expression>)
 {
     use programs::Expression::*;
-    if let ElimApplication { ref function, ref argument } = *expr {
-        args.push(argument);
-        get_args_helper(function, args)
-    } else {
-        (expr, args)
+    while let ElimApplication { function, argument } = expr {
+        expr = *function;
+        args.push_front(*argument);
     }
+
+    (expr, args)
+}
+
+// do we recurse one comparison or both?
+fn recurse_reduction_check(
+    self_fun: &Expression,
+    self_args: &VecDeque<Expression>,
+    other_fun: &Expression,
+    other_args: &VecDeque<Expression>,
+) -> bool {
+    if self_args.len() != other_args.len() {
+        return false;
+    }
+    if !self_fun.clone().reduces_to(other_fun.clone()) {
+        return false;
+    }
+    for i in 0..self_args.len() {
+        if !self_args[i].clone().reduces_to(other_args[i].clone()) {
+            return false;
+        }
+    }
+    true
 }
 
 impl Expression {
@@ -43,6 +58,36 @@ impl Expression {
         }
         reapply_args(fun, args)
     }
+
+    fn reduces_to(self: Self, mut other_fun: Self) -> bool {
+        if self == other_fun {
+            return true;
+        }
+
+        let (self_fun, self_args) = get_args(self, VecDeque::new());
+        let mut other_args = VecDeque::new();
+
+        loop {
+            if recurse_reduction_check(
+                &self_fun,
+                &self_args,
+                &other_fun,
+                &other_args,
+            ) {
+                return true;
+            }
+
+            let (new_fun, new_args, did_reduction) =
+                reduce_args_once(other_fun, other_args);
+            other_fun = new_fun;
+            other_args = new_args;
+
+            if !did_reduction {
+                return false;
+            }
+        }
+    }
+
 }
 
 fn reapply_args(mut fun: Expression, args: VecDeque<Expression>)
@@ -59,68 +104,91 @@ fn reduce_args(mut fun: Expression)
 {
     let mut args = VecDeque::new();
     loop {
-        use programs::Expression::*;
-        match fun {
-            ElimApplication { function, argument } => {
-                fun = *function;
-                args.push_front(*argument);
-            },
-            IntroLambda { body } => {
-                if let Some(arg) = args.pop_front() {
-                    fun = body.substitute(&arg);
-                } else {
-                    // back-track
-                    fun = IntroLambda { body };
-                    break;
-                }
-            },
-            ElimIf => {
-                if args.len() >= 3 {
-                    let tt_branch = args.pop_front().unwrap();
-                    let ff_branch = args.pop_front().unwrap();
-                    let condition = args.pop_front().unwrap();
+        let (new_fun, new_args, did_reduction) = reduce_args_once(fun, args);
+        if !did_reduction {
+            return (new_fun, new_args);
+        }
+        fun = new_fun;
+        args = new_args;
+    }
+}
 
-                    let condition = condition.reduce_weak();
+fn reduce_weak_once(expr: Expression) -> (Expression, bool) {
+    let (fun, args) = get_args(expr, VecDeque::new());
+    let (fun, args, did_reduce) = reduce_args_once(fun, args);
+    let expr = reapply_args(fun, args);
+    (expr, did_reduce)
+}
+
+fn reduce_args_once(fun: Expression, mut args: VecDeque<Expression>)
+    -> (Expression, VecDeque<Expression>, bool)
+{
+    use programs::Expression::*;
+    match fun {
+        ElimApplication { .. } => {
+            let (fun, args) = get_args(fun, args);
+            return (fun, args, true);
+        },
+        IntroLambda { .. } => {
+            if let Some(arg) = args.pop_front() {
+                if let IntroLambda { body } = fun {
+                    let new_expr = body.substitute(&arg);
+                    return (new_expr, args, true);
+                } else {
+                    unreachable!();
+                }
+            }
+        },
+        ElimIf => {
+            if args.len() >= 3 {
+                let tt_branch = args.pop_front().unwrap();
+                let ff_branch = args.pop_front().unwrap();
+                let condition = args.pop_front().unwrap();
+
+                // we could do reduce_args_once to search more thoroughly
+                // during type checking
+                let (condition, did_reduce) = reduce_weak_once(condition);
+                if !did_reduce {
                     if condition == IntroTT {
-                        fun = tt_branch;
+                        return (tt_branch, args, true)
                     } else if condition == IntroFF {
-                        fun = ff_branch;
-                    } else {
-                        // condition can't normalize, move on
-                        fun = apply(fun, tt_branch);
-                        fun = apply(fun, ff_branch);
-                        fun = apply(fun, condition);
-                        break;
+                        return (ff_branch, args, true)
                     }
-                } else {
-                    break;
                 }
-            },
-            ElimUncurry => {
-                if args.len() >= 2 {
-                    let function = args.pop_front().unwrap();
-                    let pair = args.pop_front().unwrap();
+                // condition not fully normalized, move on
+                args.push_front(condition);
+                args.push_front(ff_branch);
+                args.push_front(tt_branch);
+                return (fun, args, did_reduce);
+            }
+        },
+        ElimUncurry => {
+            if args.len() >= 2 {
+                let function = args.pop_front().unwrap();
+                let pair = args.pop_front().unwrap();
 
-                    let (rule, mut terms) = reduce_args(pair);
+                let (mut pair, did_reduce) = reduce_weak_once(pair);
+                if !did_reduce {
+                    let (rule, mut terms) = get_args(pair, VecDeque::new());
                     if rule == IntroPair && terms.len() == 2 {
                         // reduces `uncurry f (Pair x y) z...`
                         // into `f x y z...`
-                        fun = function;
-
                         terms.append(&mut args);
-                        args = terms;
-                    } else {
-                        break;
+                        return (function, terms, true);
                     }
-                } else {
-                    break;
-                }
-            },
 
-            _ => break,
-        }
+                    //else
+                    pair = reapply_args(rule, terms);
+                }
+                args.push_front(pair);
+                args.push_front(function);
+                return (fun, args, did_reduce);
+            }
+        },
+
+        _ => (),
     }
-    (fun, args)
+    (fun, args, false)
 }
 
 #[cfg(test)]

@@ -66,7 +66,6 @@ fn choose_var(len: usize) -> String {
      "y", "z"][len % 26].into()
 }
 
-
 impl Expression {
     fn pretty(self: &Self, fmt: &mut fmt::Formatter, ctx: &mut Vec<String>)
         -> Result<(), fmt::Error>
