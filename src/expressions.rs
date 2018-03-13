@@ -1,4 +1,4 @@
-use std::fmt;
+use programs;
 
 #[derive(Clone, PartialEq)]
 pub enum Expression {
@@ -20,24 +20,10 @@ pub enum Expression {
 
     IntroTT,
     IntroFF,
-    ElimIf {
-        condition: Box<Expression>,
-        tt_branch: Box<Expression>,
-        ff_branch: Box<Expression>,
-        out_type: Box<Expression>,
-    },
+    ElimIf,
 
-    IntroPair {
-        fst: Box<Expression>,
-        snd: Box<Expression>,
-        snd_type: Box<Expression>,
-    },
-    ElimFst {
-        pair: Box<Expression>,
-    },
-    ElimSnd {
-        pair: Box<Expression>,
-    },
+    IntroPair,
+    ElimUncurry,
 
     IntroType(Box<Type>),
 
@@ -45,13 +31,11 @@ pub enum Expression {
     // i.e. forall a: Type, (a -> a) -> a
     // which is useful for recursive types and functions
     // factorial = fix (\fact -> \x -> x * fact (x - 1))
-    SpecialFix {
-        // is_co: bool,  // is this necessary?
-        generator: Box<Expression>,
-    },
+    // compiles into (\f -> (\x -> x x) (\x -> f (x x)))
+    SpecialFix/*{is_co: bool/*is this necessary?*/}*/,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub enum Type {
     Void,
     Unit,
@@ -67,6 +51,7 @@ pub enum Type {
     Universe/*(usize)*/,
 }
 
+/*
 impl fmt::Debug for Expression {
     fn fmt(self: &Self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let mut ctx = Vec::new();
@@ -82,8 +67,17 @@ fn choose_var(len: usize) -> String {
      "s", "t", "u", "v", "w", "x",
      "y", "z"][len % 26].into()
 }
+*/
 
+impl Expression {
+    fn convert(self: &Self) -> programs::Expression {
+        match *self {
+            _ => unimplemented!(),
+        }
+    }
+}
 
+/*
 impl Expression {
     fn pretty(self: &Self, fmt: &mut fmt::Formatter, ctx: &mut Vec<String>)
         -> Result<(), fmt::Error>
@@ -178,7 +172,9 @@ impl Expression {
         Ok(())
     }
 }
+*/
 
+/*
 impl Type {
     fn pretty(self: &Self, fmt: &mut fmt::Formatter, ctx: &mut Vec<String>)
         -> Result<(), fmt::Error> {
@@ -221,13 +217,42 @@ impl Type {
         Ok(())
     }
 }
+*/
 
 pub fn var(n: usize) -> Expression {
     Expression::Variable(n)
 }
 
+pub fn lambda(in_type: Expression, body: Expression)
+    -> Expression
+{
+    let in_type = Box::new(in_type);
+    let body = Box::new(body);
+    Expression::IntroLambda { in_type, body }
+}
+
+pub fn apply(function: Expression, argument: Expression) -> Expression {
+    let function = Box::new(function);
+    let argument = Box::new(argument);
+    Expression::ElimApplication { function, argument }
+}
+
+pub fn absurd(void: Expression, conclusion: Expression) -> Expression {
+    let result = Expression::ElimAbsurd;
+    let result = apply(result, conclusion);
+    let result = apply(result, void);
+    result
+}
+
 pub fn point() -> Expression {
     Expression::IntroPoint
+}
+
+pub fn trivial(predicate: Expression, case: Expression) -> Expression {
+    let result = Expression::ElimTrivial;
+    let result = apply(result, predicate);
+    let result = apply(result, case);
+    result
 }
 
 pub fn tt() -> Expression {
@@ -246,43 +271,37 @@ pub fn if_then_else(
     ff_branch: Expression,
     out_type: Expression,
 ) -> Expression {
-    let condition = Box::new(condition);
-    let tt_branch = Box::new(tt_branch);
-    let ff_branch = Box::new(ff_branch);
-    let out_type = Box::new(out_type);
-    Expression::ElimIf { condition, tt_branch, ff_branch, out_type }
-}
-
-pub fn lambda(in_type: Expression, body: Expression)
-    -> Expression
-{
-    let in_type = Box::new(in_type);
-    let body = Box::new(body);
-    Expression::IntroLambda { in_type, body }
-}
-
-pub fn apply(function: Expression, argument: Expression) -> Expression {
-    let function = Box::new(function);
-    let argument = Box::new(argument);
-    Expression::ElimApplication { function, argument }
+    let result = Expression::ElimIf;
+    let result = apply(result, out_type);
+    let result = apply(result, tt_branch);
+    let result = apply(result, ff_branch);
+    let result = apply(result, condition);
+    result
 }
 
 // see if-then-else on the subject of type inference
-pub fn pair(fst: Expression, snd: Expression, snd_type: Expression) -> Expression {
-    let fst = Box::new(fst);
-    let snd = Box::new(snd);
-    let snd_type = Box::new(snd_type);
-    Expression::IntroPair { fst, snd, snd_type }
+pub fn pair(
+    fst: Expression,
+    snd: Expression,
+    fst_type: Expression,
+    snd_type: Expression,
+) -> Expression {
+    let result = Expression::ElimIf;
+    let result = apply(result, fst_type);
+    let result = apply(result, snd_type);
+    let result = apply(result, fst);
+    let result = apply(result, snd);
+    result
 }
 
-pub fn fst(pair: Expression) -> Expression {
-    let pair = Box::new(pair);
-    Expression::ElimFst { pair }
-}
-
-pub fn snd(pair: Expression) -> Expression {
-    let pair = Box::new(pair);
-    Expression::ElimSnd { pair }
+pub fn uncurry(pair: Expression, fst_type: Expression, snd_type: Expression)
+    -> Expression
+{
+    let result = Expression::ElimUncurry;
+    let result = apply(result, fst_type);
+    let result = apply(result, snd_type);
+    let result = apply(result, pair);
+    result
 }
 
 pub fn simple_type(typ: Type) -> Expression {
@@ -291,8 +310,9 @@ pub fn simple_type(typ: Type) -> Expression {
 }
 
 pub fn fix(generator: Expression) -> Expression {
-    let generator = Box::new(generator);
-    Expression::SpecialFix { generator }
+    let result = Expression::SpecialFix;
+    let result = apply(result, generator);
+    result
 }
 
 pub fn void() -> Expression {
