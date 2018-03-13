@@ -1,3 +1,5 @@
+use programs;
+
 #[derive(Clone, PartialEq)]
 pub enum Expression {
     Variable {
@@ -97,7 +99,6 @@ fn find_var(ctx: &Vec<String>, var: &String) -> usize {
     panic!("Variable not defined: `{}`", var);
 }
 
-/*
 impl Expression {
     fn convert(self: &Self) -> programs::Expression {
         self.convert_with(&mut Vec::new())
@@ -108,23 +109,23 @@ impl Expression {
     {
         use self::Expression::*;
         match *self {
-            Var { ref name } => {
+            Variable { ref name } => {
                 let num = find_var(ctx, name);
                 programs::var(num)
             },
             IntroLambda { ref var_name, ref body, .. } => {
-                ctx.push(var_name);
-                let body = body.convert(ctx);
+                ctx.push(var_name.clone());
+                let body = body.convert_with(ctx);
                 ctx.pop();
                 programs::lambda(body)
             },
             ElimApplication { ref function, ref argument } => {
-                let function = function.convert(ctx);
-                let argument = argument.convert(ctx);
+                let function = function.convert_with(ctx);
+                let argument = argument.convert_with(ctx);
                 programs::apply(function, argument)
             },
 
-            ElimVoid => {
+            ElimAbsurd { .. } => {
                 // could return point(),
                 // since this will never be applied to a value
                 programs::lambda(programs::var(0))
@@ -133,7 +134,7 @@ impl Expression {
             IntroPoint => {
                 programs::point()
             },
-            ElimTrivial => {
+            ElimTrivial { .. } => {
                 programs::lambda(programs::lambda(programs::var(1)))
             },
 
@@ -143,12 +144,61 @@ impl Expression {
             IntroFF => {
                 programs::ff()
             },
-            ElimIf => {
-                Elim
+            ElimIf { .. } => {
+                // TODO write these as `programs::if_fn` etc.
+                // (won't happen)
+                programs::Expression::ElimIf
+            },
+
+            IntroPair { .. } => {
+                programs::Expression::IntroPair
+            },
+            ElimUncurry { .. } => {
+                programs::Expression::ElimUncurry
+            },
+
+            IntroType(ref ty) => {
+                let ty = &**ty;
+                use self::Type::*;
+                match *ty {
+                    Void => programs::void(),
+                    Unit => programs::unit(),
+                    Bool => programs::bool(),
+                    Pi { ref var_name, ref domain, ref codomain } => {
+                        ctx.push(var_name.clone());
+                        let domain = domain.convert_with(ctx);
+                        let codomain = codomain.convert_with(ctx);
+                        ctx.pop();
+                        programs::pi(domain, codomain)
+                    },
+                    Sigma { ref var_name, ref fst_type, ref snd_type } => {
+                        ctx.push(var_name.clone());
+                        let fst_type = fst_type.convert_with(ctx);
+                        let snd_type = snd_type.convert_with(ctx);
+                        ctx.pop();
+                        programs::sigma(fst_type, snd_type)
+                    },
+                    Universe => programs::universe(),
+                }
+            },
+
+            SpecialFix { .. } => {
+                let self_apply = programs::lambda(programs::apply(
+                        programs::var(0),
+                        programs::var(0),
+                ));
+                let f_self_apply = programs::lambda(programs::apply(
+                        programs::var(1),
+                        programs::apply(
+                            programs::var(0),
+                            programs::var(0),
+                        ),
+                ));
+                programs::lambda(programs::apply(self_apply, f_self_apply))
+            }
         }
     }
 }
-*/
 
 /*
 impl Expression {
