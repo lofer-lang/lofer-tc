@@ -59,7 +59,7 @@ impl Expression {
         reapply_args(fun, args)
     }
 
-    fn reduces_to(mut self: Self, other: Self) -> bool {
+    pub fn reduces_to(mut self: Self, other: Self) -> bool {
         if self == other {
             return true;
         }

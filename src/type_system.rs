@@ -1,53 +1,86 @@
-use expressions::*;
+use programs::*;
+use expressions;
+use substitution::deepen;
 
-type TypeCheckError = ();
+type Context = Vec<(String, Expression)>;
 
-pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
+fn find_var<'a>(ctx: &'a Context, name: &String) -> (usize, &'a Expression) {
+    for i in 0..ctx.len() {
+        if ctx[ctx.len() - i - 1].0 == *name {
+            return (i, &ctx[ctx.len() - i - 1].1);
+        }
+    }
+    panic!("Name not in scope: `{}`", name);
+}
+
+pub fn type_check(ctx: &mut Context, expr: &expressions::Expression)
     -> Result<Expression, TypeCheckError>
 {
-    unimplemented!();
-}
-/*
     use expressions::Expression::*;
     match *expr {
-        Variable(i) => {
-            // was deepen but need to change to named variables
-            unimplemented!();
+        Variable { ref name } => {
+            let (i, typ) = find_var(ctx, name);
+            Ok(deepen(typ, i + 1, 0))
+        },
+
+        IntroLambda { ref var_name, ref var_type, ref body } => {
+            Ok(type_check_lambda(ctx, var_name, var_type, body)?)
+        },
+        ElimApplication { ref function, ref argument } => {
+            Ok(type_check_apply(ctx, function, argument)?)
+        },
+
+        ElimAbsurd { ref output_type } => {
+            Ok(pi(void(), output_type.convert()))
         },
 
         IntroPoint => {
             Ok(unit())
+        },
+        ElimTrivial { ref predicate } => {
+            let predicate = predicate.convert();
+            let predicate = |x| apply(predicate.clone(), x);
+            Ok(pi(predicate(point()), pi(unit(), predicate(var(0)))))
         },
 
         IntroTT | IntroFF => {
             Ok(bool())
         },
         ElimIf {
-            ref condition,
-            ref tt_branch,
-            ref ff_branch,
             ref out_type,
         } => {
-            Ok(type_check_if(ctx, condition, tt_branch, ff_branch, out_type)?)
+            let out_type = out_type.convert();
+            let out_type = |x| apply(out_type.clone(), x);
+            Ok(
+                pi(out_type(tt()),
+                 pi(out_type(ff()),
+                  pi(bool(),
+                   out_type(var(0)))))
+            )
         },
 
-        IntroLambda { ref in_type, ref body } => {
-            Ok(type_check_lambda(ctx, in_type, body)?)
+        IntroPair { ref fst_type, ref snd_type } => {
+            let fst_type = fst_type.convert();
+            let fst_type = || fst_type.clone();
+            let snd_type = snd_type.convert();
+            let snd_type = || snd_type.clone();
+            Ok(
+                pi(fst_type(),
+                 pi(snd_type(),
+                  sigma(fst_type(), snd_type())))
+            )
         },
-        ElimApplication { ref function, ref argument } => {
-            Ok(type_check_apply(ctx, function, argument)?)
-        },
-
-        IntroPair { ref fst, ref snd, ref snd_type } => {
-            Ok(type_check_pair(ctx, fst, snd, snd_type)?)
-        },
-        ElimFst { ref pair } => {
-            Ok(type_check_fst(ctx, pair)
-               .map_err(|err| TypeCheckError::InFst(err))?)
-        },
-        ElimSnd { ref pair } => {
-            Ok(type_check_snd(ctx, pair)
-               .map_err(|err| TypeCheckError::InSnd(err))?)
+        ElimUncurry { ref fst_type, ref snd_type, ref result_type } => {
+            let fst_type = fst_type.convert();
+            let fst_type = || fst_type.clone();
+            let snd_type = snd_type.convert();
+            let snd_type = || snd_type.clone();
+            let result_type = result_type.convert();
+            let result_type = || result_type.clone();
+            Ok(pi(
+                pi(fst_type(), pi(snd_type(), result_type())),
+                pi(sigma(fst_type(), snd_type()), result_type()),
+            ))
         },
 
         IntroType(_) => {
@@ -55,27 +88,18 @@ pub fn type_check(ctx: &mut Vec<Expression>, expr: &Expression)
             Ok(universe())
         },
 
-        SpecialFix { ref generator } => {
-            Ok(type_check_fix(ctx, generator, expr)?)
+        SpecialFix { ref output_type } => {
+            let output_type = output_type.convert();
+            let output_type = || output_type.clone();
+            Ok(pi(pi(output_type(), output_type()), output_type()))
         },
     }
 }
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum TypeCheckError {
-    InIf(TypeCheckIfError),
     InLambda(TypeCheckLambdaError),
     InApply(TypeCheckApplyError),
-    InPair(TypeCheckPairError),
-    InFst(TypeCheckPairElimError),
-    InSnd(TypeCheckPairElimError),
-    InFix(TypeCheckFixError),
-}
-
-impl From<TypeCheckIfError> for TypeCheckError {
-    fn from(val: TypeCheckIfError) -> Self {
-        TypeCheckError::InIf(val)
-    }
 }
 
 impl From<TypeCheckLambdaError> for TypeCheckError {
@@ -87,35 +111,6 @@ impl From<TypeCheckLambdaError> for TypeCheckError {
 impl From<TypeCheckApplyError> for TypeCheckError {
     fn from(val: TypeCheckApplyError) -> Self {
         TypeCheckError::InApply(val)
-    }
-}
-
-impl From<TypeCheckPairError> for TypeCheckError {
-    fn from(val: TypeCheckPairError) -> Self {
-        TypeCheckError::InPair(val)
-    }
-}
-
-impl From<TypeCheckFixError> for TypeCheckError {
-    fn from(val: TypeCheckFixError) -> Self {
-        TypeCheckError::InFix(val)
-    }
-}
-
-fn assert_type(
-    ctx: &mut Vec<Expression>,
-    val: &Expression,
-    expected: &Expression,
-) -> Result<(), TypeError> {
-    let actual = type_check(ctx, val)?;
-    //let actual = actual.reduce_lazy();
-    //let expected = expected.reduce_lazy();
-    let expected = expected.clone();
-    if actual == expected {
-        unimplemented!();
-        Ok(())
-    } else {
-        Err(TypeError::Mismatch { expected, actual })
     }
 }
 
@@ -134,41 +129,15 @@ impl From<TypeCheckError> for TypeError {
     }
 }
 
-fn type_check_if(
-    ctx: &mut Vec<Expression>,
-    condition: &Expression,
-    tt_branch: &Expression,
-    ff_branch: &Expression,
-    out_type: &Expression,
-) -> Result<Expression, TypeCheckIfError> {
-    use self::TypeCheckIfError::*;
-    assert_type(ctx, condition, &bool())
-        .map_err(|err| Condition(err))?;
-
-    assert_type(ctx, tt_branch, &out_type.substitute(&tt()))
-        .map_err(|err| TTBranch(err))?;
-    assert_type(ctx, ff_branch, &out_type.substitute(&ff()))
-        .map_err(|err| FFBranch(err))?;
-
-    let out_type = out_type.substitute(condition);
-    Ok(out_type)
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckIfError {
-    Condition(TypeError),
-    TTBranch(TypeError),
-    FFBranch(TypeError),
-}
-
 fn type_check_lambda(
-    ctx: &mut Vec<Expression>,
-    in_type: &Expression,
-    body: &Expression,
+    ctx: &mut Context,
+    var_name: &String,
+    var_type: &expressions::Expression,
+    body: &expressions::Expression,
 ) -> Result<Expression, TypeCheckLambdaError> {
-    ctx.push(in_type.clone());
+    ctx.push((var_name.clone(), var_type.convert()));
     let maybe_codomain = type_check(ctx, body);
-    let domain = ctx.pop().unwrap();
+    let domain = ctx.pop().unwrap().1;
     let codomain = maybe_codomain?;
     Ok(pi(domain, codomain))
 }
@@ -185,22 +154,39 @@ impl From<TypeCheckError> for TypeCheckLambdaError {
     }
 }
 
+fn assert_type(
+    ctx: &mut Context,
+    val: &expressions::Expression,
+    expected: &Expression,
+) -> Result<(), TypeError> {
+    let actual = type_check(ctx, val)?;
+    let expected = expected.clone();
+
+    if actual.clone().reduces_to(expected.clone())
+        || expected.clone().reduces_to(actual.clone())
+    {
+        Ok(())
+    } else {
+        Err(TypeError::Mismatch { expected, actual })
+    }
+}
+
 fn type_check_apply(
-    ctx: &mut Vec<Expression>,
-    function: &Expression,
-    argument: &Expression,
+    ctx: &mut Context,
+    function: &expressions::Expression,
+    argument: &expressions::Expression,
 ) -> Result<Expression, TypeCheckApplyError> {
     use self::TypeCheckApplyError::*;
 
     let fun_type = type_check(ctx, function)
         .map_err(|err| InFunction(Box::new(err)))?;
-    let fun_type = fun_type.reduce_lazy();
+    let fun_type = fun_type.reduce_weak();
     if let Expression::IntroType(maybe_pi) = fun_type {
         let maybe_pi = *maybe_pi;
         if let Type::Pi { domain, codomain } = maybe_pi {
             assert_type(ctx, argument, &*domain)
                 .map_err(|err| Argument(err))?;
-            let codomain = codomain.substitute(&argument);
+            let codomain = codomain.substitute(&argument.convert());
             Ok(codomain)
         } else {
             Err(FunctionNotPi(simple_type(maybe_pi)))
@@ -216,114 +202,6 @@ pub enum TypeCheckApplyError {
     FunctionNotPi(Expression),
     Argument(TypeError),
 }
-
-fn type_check_pair(
-    ctx: &mut Vec<Expression>,
-    fst: &Expression,
-    snd: &Expression,
-    snd_type: &Expression,
-) -> Result<Expression, TypeCheckPairError> {
-    use self::TypeCheckPairError::*;
-    let fst_type = type_check(ctx, fst)
-        .map_err(|err| InFst(Box::new(err)))?;
-    let expected_snd_type = snd_type.substitute(fst);
-    assert_type(ctx, snd, &expected_snd_type)
-        .map_err(|err| Snd(err))?;
-    Ok(sigma(fst_type, snd_type.clone()))
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckPairError {
-    InFst(Box<TypeCheckError>),
-    Snd(TypeError),
-}
-
-fn type_check_pair_elim(ctx: &mut Vec<Expression>, pair: &Expression)
-    -> Result<(Expression, Expression), TypeCheckPairElimError>
-{
-    use self::TypeCheckPairElimError::*;
-    let pair_type = type_check(ctx, pair)
-        .map_err(|err| InPair(Box::new(err)))?;
-    let pair_type = pair_type.reduce_lazy();
-    if let Expression::IntroType(maybe_sigma) = pair_type {
-        let maybe_sigma = *maybe_sigma;
-        if let Type::Sigma { fst_type, snd_type } = maybe_sigma {
-            Ok((*fst_type, *snd_type))
-        } else {
-            Err(NotSigma(simple_type(maybe_sigma)))
-        }
-    } else {
-        Err(NotSigma(pair_type))
-    }
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckPairElimError {
-    InPair(Box<TypeCheckError>),
-    NotSigma(Expression),
-}
-
-fn type_check_fst(ctx: &mut Vec<Expression>, pair: &Expression)
-    -> Result<Expression, TypeCheckPairElimError>
-{
-    Ok(type_check_pair_elim(ctx, pair)?.0)
-}
-
-fn type_check_snd(ctx: &mut Vec<Expression>, pair: &Expression)
-    -> Result<Expression, TypeCheckPairElimError>
-{
-    let snd_type = type_check_pair_elim(ctx, pair)?.1;
-    let pair = pair.clone();
-    let pair = Box::new(pair);
-    let fst = Expression::ElimFst { pair };
-    let snd_type = snd_type.substitute(&fst);
-    Ok(snd_type)
-}
-
-fn type_check_fix(
-    ctx: &mut Vec<Expression>,
-    generator: &Expression,
-    fixed_point: &Expression
-) -> Result<Expression, TypeCheckFixError>
-{
-    use self::TypeCheckFixError::*;
-    let generator_type = type_check(ctx, generator)
-        .map_err(|err| InGenerator(Box::new(err)))?;
-    if let Expression::IntroType(maybe_pi) = generator_type {
-        let maybe_pi = *maybe_pi;
-        if let Type::Pi { domain, codomain } = maybe_pi {
-            let codomain = codomain.substitute(fixed_point);
-            // are these necessary? probably?
-            let domain = domain.reduce_lazy();
-            let codomain = codomain.reduce_lazy();
-            if domain == codomain {
-                Ok(domain)
-            } else {
-                Err(NotEndo { domain, codomain })
-            }
-        } else {
-            Err(NotPi(simple_type(maybe_pi)))
-        }
-    } else {
-        Err(NotPi(generator_type))
-    }
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckFixError {
-    InGenerator(Box<TypeCheckError>),
-    NotPi(Expression),
-    /// Given a generator `gen`, the fixed point `fix gen` can only
-    /// exist if the the domain of `gen` is the type of `gen (fix gen)`.
-    /// In the absence of dependently typed functions, this means the
-    /// domain and codomain must be equal, i.e. the generator function must
-    /// be an endofunction.
-    NotEndo {
-        domain: Expression,
-        codomain: Expression,
-    },
-}
-*/
 
 #[cfg(test)]
 mod tests {
@@ -435,7 +313,7 @@ mod tests {
     #[test]
     fn variable_management() {
         let mut ctx = Vec::new();
-        let _ = type_check(&mut ctx, &Expression::IntroPoint);
+        let _ = type_check(&mut ctx, &expressions::Expression::IntroPoint);
         assert_eq!(*ctx, []);
 
         type_checks!(

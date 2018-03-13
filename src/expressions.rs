@@ -1,6 +1,6 @@
 use programs;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Expression {
     Variable {
         name: String,
@@ -39,6 +39,7 @@ pub enum Expression {
     ElimUncurry {
         fst_type: Box<Expression>,
         snd_type: Box<Expression>,
+        result_type: Box<Expression>,
     },
 
     IntroType(Box<Type>),
@@ -54,7 +55,7 @@ pub enum Expression {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     Void,
     Unit,
@@ -100,11 +101,15 @@ fn find_var(ctx: &Vec<String>, var: &String) -> usize {
 }
 
 impl Expression {
-    fn convert(self: &Self) -> programs::Expression {
+    pub fn reduces_to(self: &Self, other: &Self) -> bool {
+        self.convert().reduces_to(other.convert())
+    }
+
+    pub fn convert(self: &Self) -> programs::Expression {
         self.convert_with(&mut Vec::new())
     }
 
-    fn convert_with(self: &Self, ctx: &mut Vec<String>)
+    pub fn convert_with(self: &Self, ctx: &mut Vec<String>)
         -> programs::Expression
     {
         use self::Expression::*;
@@ -433,16 +438,24 @@ pub fn pair_fn(fst_type: Expression, snd_type: Expression) -> Expression {
     Expression::IntroPair { fst_type, snd_type }
 }
 
-pub fn uncurry(pair: Expression, fst_type: Expression, snd_type: Expression)
-    -> Expression
-{
-    apply(uncurry_fn(fst_type, snd_type), pair)
+pub fn uncurry(
+    function: Expression,
+    fst_type: Expression,
+    snd_type: Expression,
+    result_type: Expression,
+) -> Expression {
+    apply(uncurry_fn(fst_type, snd_type, result_type), function)
 }
 
-pub fn uncurry_fn(fst_type: Expression, snd_type: Expression) -> Expression {
+pub fn uncurry_fn(
+    fst_type: Expression,
+    snd_type: Expression,
+    result_type: Expression,
+) -> Expression {
     let fst_type = Box::new(fst_type);
     let snd_type = Box::new(snd_type);
-    Expression::ElimUncurry { fst_type, snd_type }
+    let result_type = Box::new(result_type);
+    Expression::ElimUncurry { fst_type, snd_type, result_type }
 }
 
 pub fn simple_type(typ: Type) -> Expression {
