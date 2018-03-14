@@ -247,6 +247,14 @@ pub fn uncurry(fun: Expression) -> Expression {
     result
 }
 
+pub fn fst(x: Expression) -> Expression {
+    apply(uncurry(lambda(lambda(var(1)))), x)
+}
+
+pub fn snd(x: Expression) -> Expression {
+    apply(uncurry(lambda(lambda(var(0)))), x)
+}
+
 pub fn simple_type(typ: Type) -> Expression {
     let typ = Box::new(typ);
     Expression::IntroType(typ)
@@ -280,6 +288,13 @@ pub fn sigma(fst_type: Expression, snd_type: Expression) -> Expression {
 
 pub fn universe() -> Expression {
     simple_type(Type::Universe)
+}
+
+pub fn fix(x: Expression) -> Expression {
+    apply(
+        lambda(apply(var(0), var(0))),
+        lambda(apply(x, apply(var(0), var(0)))),
+    )
 }
 
 #[cfg(test)]

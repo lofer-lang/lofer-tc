@@ -205,7 +205,10 @@ pub enum TypeCheckApplyError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use expressions::*;
+    use super::type_check;
+    use super::{TypeCheckError, TypeCheckApplyError, TypeCheckLambdaError,
+       TypeError};
 
     macro_rules! type_checks {
         ($before: expr => $after: expr) => {{
@@ -213,7 +216,7 @@ mod tests {
             let mut ctx = Vec::new();
             let before = $before;
             let after = type_check(&mut ctx, &before);
-            assert_eq!(Ok($after), after);
+            assert_eq!(Ok($after.convert()), after);
             // mainly for `variable_management` but should always pass
             assert_eq!(*ctx, []);
         }}
@@ -243,6 +246,15 @@ mod tests {
         type_error!(
             if_then_else(point(), tt(), tt(), bool())
         =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::Argument(
+                    TypeError::Mismatch {
+                        expected: unit().convert(),
+                        actual: unit().convert(),
+                    }
+                )
+            )
+        /*
             TypeCheckError::InIf(
                 TypeCheckIfError::Condition(
                     TypeError::Mismatch {
@@ -251,11 +263,21 @@ mod tests {
                     }
                 )
             )
+            */
         );
 
         type_error!(
             if_then_else(tt(), tt(), point(), bool())
         =>
+            TypeCheckError::InApply(
+                TypeCheckApplyError::Argument(
+                    TypeError::Mismatch {
+                        expected: unit().convert(),
+                        actual: unit().convert(),
+                    }
+                )
+            )
+        /*
             TypeCheckError::InIf(
                 TypeCheckIfError::FFBranch(
                     TypeError::Mismatch {
@@ -264,23 +286,24 @@ mod tests {
                     }
                 )
             )
+            */
         );
     }
 
     #[test]
     fn function_type_checking() {
-        type_checks!(lambda(unit(), var(0)) => pi(unit(), unit()));
+        type_checks!(lambda("x", unit(), var("x")) => pi("_", unit(), unit()));
 
-        type_checks!(apply(lambda(bool(), point()), tt()) => unit());
+        type_checks!(apply(lambda("_", bool(), point()), tt()) => unit());
 
         type_error!(
-            apply(lambda(bool(), point()), point())
+            apply(lambda("_", bool(), point()), point())
         =>
             TypeCheckError::InApply(
                 TypeCheckApplyError::Argument(
                     TypeError::Mismatch {
-                        expected: bool(),
-                        actual: unit(),
+                        expected: bool().convert(),
+                        actual: unit().convert(),
                     }
                 )
             )
@@ -290,38 +313,43 @@ mod tests {
             apply(point(), tt())
         =>
             TypeCheckError::InApply(
-                TypeCheckApplyError::FunctionNotPi(unit())
+                TypeCheckApplyError::FunctionNotPi(unit().convert())
             )
         );
     }
 
     #[test]
     fn pair_type_checking() {
-        type_checks!(pair(point(), tt(), bool()) => sigma(unit(), bool()));
+        type_checks!(
+            pair(point(), tt(), unit(), bool())
+        =>
+            sigma("_", unit(), bool())
+        );
 
-        type_checks!(fst(pair(point(), tt(), bool())) => unit());
-
-        type_checks!(snd(pair(point(), tt(), bool())) => bool());
-
-        let err = || TypeCheckPairElimError::NotSigma(unit());
-
-        type_error!(fst(point()) => TypeCheckError::InFst(err()));
-
-        type_error!(snd(point()) => TypeCheckError::InSnd(err()));
+        type_checks!(
+            uncurry_fn(void(), unit(), bool())
+        =>
+            pi("_", pi("_", void(), pi("_", unit(), bool())),
+              pi("_", sigma("_", void(), unit()),
+                bool()
+            ))
+        );
     }
 
     #[test]
     fn variable_management() {
         let mut ctx = Vec::new();
-        let _ = type_check(&mut ctx, &expressions::Expression::IntroPoint);
+        let _ = type_check(&mut ctx, &point());
         assert_eq!(*ctx, []);
 
         type_checks!(
             // \x: Unit -> \y: Bool -> <y, x>
-            lambda(unit(), lambda(bool(), pair(var(0), var(1), unit())))
+            lambda("x", unit(), lambda("y", bool(),
+                pair(bool(), unit(), var("y"), var("x"))
+            ))
         =>
             // Unit -> Bool -> Bool * Unit
-            pi(unit(), pi(bool(), sigma(bool(), unit())))
+            pi("_", unit(), pi("_", bool(), sigma("_", bool(), unit())))
         );
     }
 
@@ -329,19 +357,19 @@ mod tests {
     fn annotation_checks() {
         // `()` is not a type
         type_error!(
-            pair(point(), point(), point())
+            pair_fn(point(), point())
         =>
             unimplemented!()
         );
 
         type_error!(
-            lambda(point(), point())
+            lambda("_", point(), point())
         =>
             unimplemented!()
         );
 
         type_error!(
-            pair(point(), point(), point())
+            if_then_else_fn(point())
         =>
             unimplemented!()
         );
@@ -350,18 +378,20 @@ mod tests {
     #[test]
     fn dependent_types() {
         // this type family is useful
-        let tf = || if_then_else(var(0), bool(), unit(), universe());
+        let tf = || if_then_else(var("d"), bool(), unit(), universe());
 
         type_checks!(
             lambda(
+                "d",
                 bool(),
                 apply(
                     lambda(
+                        "_",
                         unit(),
                         if_then_else(
                             // if y then tt else ()
                             //   as (if y0 then bool else unit)
-                            var(1), tt(), point(), tf()
+                            var("d"), tt(), point(), tf()
                         ),
                     ),
                     point()
@@ -369,39 +399,51 @@ mod tests {
             )
         =>
             // if y then bool else unit
-            pi(bool(), tf())
+            pi("d", bool(), tf())
         );
 
         type_checks!(
             // \x: Bool -> \y: (if x then Bool else Unit) -> <x, y>
-            lambda(bool(), lambda(tf(), pair(var(1), var(0), tf())))
+            lambda("d", bool(),
+                lambda("x", tf(),
+                    pair(bool(), tf(), var("d"), var("x"))
+            ))
         =>
-            pi(bool(), pi(tf(), sigma(bool(), tf())))
+            pi("d", bool(), pi("_", tf(), sigma("d", bool(), tf())))
         );
 
         type_checks!(
             // \A: U -> \B: U -> \x: A -> <tt, x>
             //   as (if t0 then A else B)
             lambda(
+                "A",
                 universe(),
                 lambda(
+                    "B",
                     universe(),
                     lambda(
-                        var(1),
+                        "x",
+                        var("A"),
                         pair(
-                            tt(), var(0),
-                            if_then_else(var(0), var(3), var(2), universe())
+                            tt(), var("x"),
+                            bool(),
+                            if_then_else(
+                                var("d"),
+                                var("A"),
+                                var("B"),
+                                universe(),
+                            ),
                         )
                     )
                 )
             )
         =>
             // forall A: U, forall B: U,
-            //   A -> Sigma t: Bool, if t then A else U
-            pi(universe(), pi(universe(),
+            //   A -> Sigma t: Bool, if t then A else B
+            pi("A", universe(), pi("B", universe(),
                 pi(
-                    var(1), sigma(bool(),
-                    if_then_else(var(0), var(3), var(2), universe()))
+                    "_", var("A"), sigma("t", bool(),
+                    if_then_else(var("t"), var("A"), var("B"), universe()))
                 )
             ))
         )
@@ -412,4 +454,3 @@ mod tests {
         unimplemented!();
     }
 }
-

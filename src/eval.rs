@@ -193,12 +193,12 @@ fn reduce_args_once(fun: Expression, mut args: VecDeque<Expression>)
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use programs::*;
 
     macro_rules! irreducible {
         ($before: expr) => {{
             let before = $before;
-            let after = reduce(&before, true);
+            let after = before.clone().reduce();
             assert_eq!(before, after);
         }}
     }
@@ -206,7 +206,7 @@ mod tests {
     macro_rules! reduces {
         ($before: expr => $after: expr) => {{
             let before = $before;
-            let after = reduce(&before, true);
+            let after = before.reduce();
             assert_eq!(after, $after);
         }}
     }
@@ -216,29 +216,28 @@ mod tests {
         irreducible!(point());
         irreducible!(tt());
         irreducible!(ff());
-        irreducible!(lambda(unit(), point()));
-        irreducible!(pair(tt(), ff(), bool()));
+        irreducible!(lambda(point()));
+        irreducible!(pair(tt(), ff()));
     }
 
     #[test]
     fn reduce_bool() {
-        reduces!(if_then_else(tt(), tt(), ff(), bool()) => tt());
+        reduces!(if_then_else(tt(), tt(), ff()) => tt());
 
-        reduces!(if_then_else(ff(), tt(), ff(), bool()) => ff());
+        reduces!(if_then_else(ff(), tt(), ff()) => ff());
 
-        irreducible!(if_then_else(var(1), tt(), ff(), bool()));
+        irreducible!(if_then_else(var(1), tt(), ff()));
     }
 
     #[test]
     fn reduce_lambda() {
-        reduces!(apply(lambda(bool(), var(0)), tt()) => tt());
+        reduces!(apply(lambda(var(0)), tt()) => tt());
 
         reduces!(
             // (\x: Bool -> if x then ff else tt) tt
             apply(
                 lambda(
-                    bool(),
-                    if_then_else(var(0), ff(), tt(), bool()),
+                    if_then_else(var(0), ff(), tt()),
                 ),
                 tt(),
             )
@@ -251,8 +250,8 @@ mod tests {
 
     #[test]
     fn reduce_pair() {
-        reduces!(fst(pair(tt(), ff(), bool())) => tt());
-        reduces!(snd(pair(tt(), ff(), bool())) => ff());
+        reduces!(fst(pair(tt(), ff())) => tt());
+        reduces!(snd(pair(tt(), ff())) => ff());
 
         irreducible!(fst(var(1)));
         irreducible!(snd(var(1)));
@@ -262,35 +261,34 @@ mod tests {
     fn branches_block_recursion() {
         // not allowed in Agda or Coq
         // freeze = fix (\freeze: Void -> freeze)
-        let freeze = || fix(lambda(void(), var(0)));
+        let freeze = || fix(lambda(var(0)));
 
         // recursive things don't reduce until a branch is chosen
-        irreducible!(if_then_else(var(0), freeze(), freeze(), void()));
+        irreducible!(if_then_else(var(0), freeze(), freeze()));
 
         let term = ||
-            fix(lambda(bool(), if_then_else(var(1), var(0), tt(), bool())));
+            fix(lambda(if_then_else(var(1), var(0), tt())));
 
         reduces!(
             term()
         =>
-            if_then_else(var(0), term(), tt(), bool())
+            if_then_else(var(0), term(), tt())
         );
 
-        // not sure if this is necessary but recursive things don't
-        // reduce until functions have been applied
-        irreducible!(lambda(bool(), freeze()));
+        // currently reduce() doesn't head normalize, it may never.
+        irreducible!(lambda(apply(lambda(var(0)), point())));
 
+        // term: Bool -> Bool
+        // term = fix (\f: Bool -> Bool. \x: Bool. f x)
         let term = ||
             fix(
-                lambda(
-                    pi(bool(), bool()),
-                    lambda(bool(), apply(var(1), var(0)))
+                lambda(lambda(apply(var(1), var(0)))
                 )
             );
         reduces!(
             term()
         =>
-            lambda(bool(), apply(term(), var(0)))
+            lambda(apply(term(), var(0)))
         );
     }
 
@@ -298,6 +296,7 @@ mod tests {
     fn peano() {
         // these should be in a module somewhere since multiple tests could
         // use them
+        /*
         let sum = || lambda(universe(), lambda(universe(),
             sigma(bool(), if_then_else(var(0), var(2), var(1), universe()))
         ));
@@ -309,9 +308,10 @@ mod tests {
         );
 
         let nat = || fix(lambda(universe(), apply_sum(var(0), unit())));
+        */
 
-        let zero = || pair(ff(), point(), nat());
-        let succ = || lambda(nat(), pair(tt(), var(0), nat()));
+        let zero = || pair(ff(), point());
+        let succ = || lambda(pair(tt(), var(0)));
         let apply_succ = |x| apply(succ(), x);
 
         /* nope nope nope
@@ -329,21 +329,18 @@ mod tests {
 
         // this probably won't type check as is
         let plus = ||
-            lambda(nat(),
-            fix(lambda(pi(nat(), nat()),
-            lambda(nat(),
+            lambda(fix(lambda(lambda(
                 if_then_else(
                     fst(var(0)),
                         apply(succ(),
                         apply(var(1),
                         snd(var(0)))),
                     var(2),
-                    nat(),
                 )
             ))));
 
         let two = || apply_succ(apply_succ(zero()));
-        let four = || apply_succ(apply_succ(two())).reduce_lazy();
+        let four = || apply_succ(apply_succ(two())).reduce_weak();
 
         reduces!(apply(apply(plus(), two()), two()) => four());
     }

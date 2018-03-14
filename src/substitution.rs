@@ -120,21 +120,21 @@ mod tests {
         substitutes!((0) <- (tt()) in var(0) => tt());
 
         substitutes!(
-            (0) <- (tt()) in lambda(bool(), var(0))
+            (0) <- (tt()) in lambda(var(0))
         =>
-            lambda(bool(), var(0))
+            lambda(var(0))
         );
 
         substitutes!(
-            (0) <- (tt()) in lambda(bool(), var(1))
+            (0) <- (tt()) in lambda(var(1))
         =>
-            lambda(bool(), tt())
+            lambda(tt())
         );
 
         substitutes!(
-            (0) <- (tt()) in pair(var(0), var(1), bool())
+            (0) <- (tt()) in pair(var(0), var(1))
         =>
-            pair(tt(), var(0), bool())
+            pair(tt(), var(0))
         );
     }
 
@@ -149,15 +149,15 @@ mod tests {
         substitutes!((1) <- (var(1)) in var(1) => var(2));
 
         substitutes!(
-            (0) <- (lambda(bool(), var(0))) in var(0)
+            (0) <- (lambda(var(0))) in var(0)
         =>
-            lambda(bool(), var(0))
+            lambda(var(0))
         );
 
         substitutes!(
-            (0) <- (var(2)) in lambda(bool(), var(1))
+            (0) <- (var(2)) in lambda(var(1))
         =>
-            lambda(bool(), var(3))
+            lambda(var(3))
         );
     }
 }
