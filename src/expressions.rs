@@ -170,15 +170,15 @@ impl Expression {
                     Unit => programs::unit(),
                     Bool => programs::bool(),
                     Pi { ref var_name, ref domain, ref codomain } => {
-                        ctx.push(var_name.clone());
                         let domain = domain.convert_with(ctx);
+                        ctx.push(var_name.clone());
                         let codomain = codomain.convert_with(ctx);
                         ctx.pop();
                         programs::pi(domain, codomain)
                     },
                     Sigma { ref var_name, ref fst_type, ref snd_type } => {
-                        ctx.push(var_name.clone());
                         let fst_type = fst_type.convert_with(ctx);
+                        ctx.push(var_name.clone());
                         let snd_type = snd_type.convert_with(ctx);
                         ctx.pop();
                         programs::sigma(fst_type, snd_type)

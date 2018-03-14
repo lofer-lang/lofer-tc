@@ -14,19 +14,79 @@ fn get_args(mut expr: Expression, mut args: VecDeque<Expression>)
     (expr, args)
 }
 
-// do we recurse one comparison or both?
-fn recurse_reduction_check(
+fn recurse_reduction_check_fun(
     self_fun: &Expression,
-    self_args: &VecDeque<Expression>,
     other_fun: &Expression,
+) -> bool {
+    match (self_fun, other_fun) {
+        (
+            &Expression::IntroLambda { body: ref self_body },
+            &Expression::IntroLambda { body: ref other_body },
+        ) => {
+            self_body.clone().reduces_to((**other_body).clone())
+        },
+
+        (
+            &Expression::IntroType(ref self_ty),
+            &Expression::IntroType(ref other_ty),
+        ) => {
+            let self_ty = &**self_ty;
+            let other_ty = &**other_ty;
+            match (self_ty, other_ty) {
+                (
+                    &Type::Pi {
+                        domain: ref self_domain,
+                        codomain: ref self_codomain,
+                    },
+                    &Type::Pi {
+                        domain: ref other_domain,
+                        codomain: ref other_codomain,
+                    },
+                ) => {
+                    let self_domain = (**self_domain).clone();
+                    let other_domain = (**other_domain).clone();
+                    let self_codomain = (**self_codomain).clone();
+                    let other_codomain = (**other_codomain).clone();
+
+                    self_domain.reduces_to(other_domain)
+                      && self_codomain.reduces_to(other_codomain)
+                },
+
+                (
+                    &Type::Sigma {
+                        fst_type: ref self_fst,
+                        snd_type: ref self_snd,
+                    },
+                    &Type::Sigma {
+                        fst_type: ref other_fst,
+                        snd_type: ref other_snd,
+                    },
+                ) => {
+                    let self_fst = (**self_fst).clone();
+                    let other_fst = (**other_fst).clone();
+                    let self_snd = (**self_snd).clone();
+                    let other_snd = (**other_snd).clone();
+
+                    self_fst.reduces_to(other_fst)
+                      && self_snd.reduces_to(other_snd)
+                },
+
+                _ => false,
+            }
+        },
+
+        _ => false,
+    }
+}
+// do we recurse one comparison or both?
+fn recurse_reduction_check_args(
+    self_args: &VecDeque<Expression>,
     other_args: &VecDeque<Expression>,
 ) -> bool {
     if self_args.len() != other_args.len() {
         return false;
     }
-    if !self_fun.clone().reduces_to(other_fun.clone()) {
-        return false;
-    }
+
     for i in 0..self_args.len() {
         if !self_args[i].clone().reduces_to(other_args[i].clone()) {
             return false;
@@ -60,20 +120,19 @@ impl Expression {
     }
 
     pub fn reduces_to(mut self: Self, other: Self) -> bool {
+        println!("self: {:?}\nother: {:?}", self, other);
         if self == other {
             return true;
         }
 
         let (other, other_args) = get_args(other, VecDeque::new());
-        let mut self_args = VecDeque::new();
+        let (self_fun, mut self_args) = get_args(self, VecDeque::new());
+        self = self_fun;
 
         loop {
-            if recurse_reduction_check(
-                &self,
-                &self_args,
-                &other,
-                &other_args,
-            ) {
+            if recurse_reduction_check_fun(&self, &other)
+                && recurse_reduction_check_args(&self_args, &other_args)
+            {
                 return true;
             }
 
