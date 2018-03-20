@@ -104,7 +104,7 @@ mod tests {
             let var = $A;
             let before = $B;
             let after = substitute(&before, n, &var);
-            assert_eq!($C, after);
+            assert_eq!(after, $C);
         }}
     }
 

@@ -216,7 +216,7 @@ mod tests {
             let mut ctx = Vec::new();
             let before = $before;
             let after = type_check(&mut ctx, &before);
-            assert_eq!(Ok($after.convert()), after);
+            assert_eq!(after, Ok($after.convert()));
             // mainly for `variable_management` but should always pass
             assert_eq!(*ctx, []);
         }}
@@ -228,7 +228,7 @@ mod tests {
             let mut ctx = Vec::new();
             let expr = $expr;
             let err = type_check(&mut ctx, &expr);
-            assert_eq!(Err($err), err);
+            assert_eq!(err, Err($err));
             assert_eq!(*ctx, []);
         }}
     }

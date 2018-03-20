@@ -258,7 +258,7 @@ mod tests {
         ($before: expr) => {{
             let before = $before;
             let after = before.clone().reduce();
-            assert_eq!(before, after);
+            assert_eq!(after, before);
         }}
     }
 
@@ -409,4 +409,3 @@ mod tests {
         unimplemented!();
     }
 }
-
