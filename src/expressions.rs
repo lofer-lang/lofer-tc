@@ -407,14 +407,29 @@ pub fn if_then_else(
     ff_branch: Expression,
     out_type: Expression,
 ) -> Expression {
-    let result = if_then_else_fn(out_type);
+    let out_type_family = lambda("_", bool(), out_type);
+    bool_elim(out_type_family, tt_branch, ff_branch, condition)
+}
+
+pub fn if_then_else_fn(out_type: Expression) -> Expression {
+    let out_type_family = lambda("_", bool(), out_type);
+    bool_elim_fn(out_type_family)
+}
+
+pub fn bool_elim(
+    out_type: Expression,
+    tt_branch: Expression,
+    ff_branch: Expression,
+    condition: Expression,
+) -> Expression {
+    let result = bool_elim_fn(out_type);
     let result = apply(result, tt_branch);
     let result = apply(result, ff_branch);
     let result = apply(result, condition);
     result
 }
 
-pub fn if_then_else_fn(out_type: Expression) -> Expression {
+pub fn bool_elim_fn(out_type: Expression) -> Expression {
     let out_type = Box::new(out_type);
     Expression::ElimIf { out_type }
 }
