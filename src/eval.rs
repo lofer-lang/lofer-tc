@@ -18,6 +18,10 @@ fn recurse_reduction_check_fun(
     self_fun: &Expression,
     other_fun: &Expression,
 ) -> bool {
+    if self_fun == other_fun {
+        return true;
+    }
+
     match (self_fun, other_fun) {
         (
             &Expression::IntroLambda { body: ref self_body },
@@ -120,11 +124,6 @@ impl Expression {
     }
 
     pub fn reduces_to(mut self: Self, other: Self) -> bool {
-        println!("self: {:?}\nother: {:?}", self, other);
-        if self == other {
-            return true;
-        }
-
         let (other, other_args) = get_args(other, VecDeque::new());
         let (self_fun, mut self_args) = get_args(self, VecDeque::new());
         self = self_fun;

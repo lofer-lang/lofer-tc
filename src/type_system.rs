@@ -241,7 +241,11 @@ mod tests {
 
         type_checks!(ff() => bool());
 
-        type_checks!(if_then_else(tt(), point(), point(), unit()) => unit());
+        type_checks!(
+            if_then_else(tt(), point(), point(), unit())
+        =>
+            apply(lambda("_", bool(), unit()), tt())
+        );
 
         type_error!(
             if_then_else(point(), tt(), tt(), bool())
@@ -249,7 +253,7 @@ mod tests {
             TypeCheckError::InApply(
                 TypeCheckApplyError::Argument(
                     TypeError::Mismatch {
-                        expected: unit().convert(),
+                        expected: bool().convert(),
                         actual: unit().convert(),
                     }
                 )
