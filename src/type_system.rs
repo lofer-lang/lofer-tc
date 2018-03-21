@@ -96,36 +96,24 @@ pub fn type_check(ctx: &mut Context, expr: &expressions::Expression)
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckError {
-    InLambda(TypeCheckLambdaError),
-    InApply(TypeCheckApplyError),
-}
-
-impl From<TypeCheckLambdaError> for TypeCheckError {
-    fn from(val: TypeCheckLambdaError) -> Self {
-        TypeCheckError::InLambda(val)
-    }
-}
-
-impl From<TypeCheckApplyError> for TypeCheckError {
-    fn from(val: TypeCheckApplyError) -> Self {
-        TypeCheckError::InApply(val)
-    }
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum ErrorPath {
+    InFunction,
+    InArgument,
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum TypeError {
-    Err(Box<TypeCheckError>),
-    Mismatch {
-        expected: Expression,
-        actual: Expression,
-    },
+pub struct TypeCheckError {
+    // path is in reverse order
+    path: Vec<ErrorPath>,
+    expected: Expression,
+    actual: Expression,
 }
 
-impl From<TypeCheckError> for TypeError {
-    fn from(err: TypeCheckError) -> Self {
-        TypeError::Err(Box::new(err))
+impl TypeCheckError {
+    fn with_context(mut self: Self, context: ErrorPath) -> Self {
+        self.path.push(context);
+        self
     }
 }
 
@@ -134,7 +122,7 @@ fn type_check_lambda(
     var_name: &String,
     var_type: &expressions::Expression,
     body: &expressions::Expression,
-) -> Result<Expression, TypeCheckLambdaError> {
+) -> Result<Expression, TypeCheckError> {
     ctx.push((var_name.clone(), var_type.convert()));
     let maybe_codomain = type_check(ctx, body);
     let domain = ctx.pop().unwrap().1;
@@ -142,73 +130,67 @@ fn type_check_lambda(
     Ok(pi(domain, codomain))
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub struct TypeCheckLambdaError {
-    in_body: Box<TypeCheckError>
-}
-
-impl From<TypeCheckError> for TypeCheckLambdaError {
-    fn from(in_body: TypeCheckError) -> Self {
-        let in_body = Box::new(in_body);
-        TypeCheckLambdaError { in_body }
-    }
-}
-
 fn assert_type(
-    ctx: &mut Context,
-    val: &expressions::Expression,
-    expected: &Expression,
-) -> Result<(), TypeError> {
-    let actual = type_check(ctx, val)?;
-    let expected = expected.clone();
-
+    actual: Expression,
+    expected: Expression,
+) -> Result<(), TypeCheckError> {
     if actual.clone().reduces_to(expected.clone())
         || expected.clone().reduces_to(actual.clone())
     {
         Ok(())
     } else {
-        Err(TypeError::Mismatch { expected, actual })
+        let path = Vec::new();
+        Err(TypeCheckError { path, expected, actual })
     }
 }
+
 
 fn type_check_apply(
     ctx: &mut Context,
     function: &expressions::Expression,
     argument: &expressions::Expression,
-) -> Result<Expression, TypeCheckApplyError> {
-    use self::TypeCheckApplyError::*;
-
+) -> Result<Expression, TypeCheckError> {
+    use self::ErrorPath::*;
     let fun_type = type_check(ctx, function)
-        .map_err(|err| InFunction(Box::new(err)))?;
-    let fun_type = fun_type.reduce_weak();
-    if let Expression::IntroType(maybe_pi) = fun_type {
-        let maybe_pi = *maybe_pi;
-        if let Type::Pi { domain, codomain } = maybe_pi {
-            assert_type(ctx, argument, &*domain)
-                .map_err(|err| Argument(err))?;
-            let codomain = codomain.substitute(&argument.convert());
-            Ok(codomain)
-        } else {
-            Err(FunctionNotPi(simple_type(maybe_pi)))
-        }
-    } else {
-        Err(FunctionNotPi(fun_type))
-    }
-}
+        .map_err(|err| err.with_context(InFunction))?;
+    let arg_type = type_check(ctx, argument)
+        .map_err(|err| err.with_context(InArgument))?;
+    let (domain, codomain) = expect_pi_type(fun_type, &arg_type)
+        .map_err(|err| err.with_context(InFunction))?;
+    assert_type(arg_type, domain)
+        .map_err(|err| err.with_context(InArgument))?;
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum TypeCheckApplyError {
-    InFunction(Box<TypeCheckError>),
-    FunctionNotPi(Expression),
-    Argument(TypeError),
+    let codomain = codomain.substitute(&argument.convert());
+    Ok(codomain)
+}
+fn expect_pi_type(fun_type: Expression, arg_type: &Expression)
+    -> Result<(Expression, Expression), TypeCheckError>
+{
+    if let Expression::IntroType(ref maybe_pi) = fun_type {
+        let maybe_pi = &**maybe_pi;
+        if let Type::Pi { .. } = *maybe_pi {
+            if let Expression::IntroType(maybe_pi) = fun_type {
+                let maybe_pi = *maybe_pi;
+                if let Type::Pi { domain, codomain } = maybe_pi {
+                    return Ok((*domain, *codomain));
+                }
+            }
+            unreachable!();
+        }
+    }
+    let path = Vec::new();
+    let domain = arg_type.clone();
+    let expected = pi(domain, unit());
+    let actual = fun_type;
+    Err(TypeCheckError { path, expected, actual })
 }
 
 #[cfg(test)]
 mod tests {
     use expressions::*;
     use super::type_check;
-    use super::{TypeCheckError, TypeCheckApplyError, TypeCheckLambdaError,
-       TypeError};
+    use super::TypeCheckError;
+    use super::ErrorPath::*;
 
     macro_rules! type_checks {
         ($before: expr => $after: expr) => {{
@@ -250,47 +232,21 @@ mod tests {
         type_error!(
             if_then_else(point(), tt(), tt(), bool())
         =>
-            TypeCheckError::InApply(
-                TypeCheckApplyError::Argument(
-                    TypeError::Mismatch {
-                        expected: bool().convert(),
-                        actual: unit().convert(),
-                    }
-                )
-            )
-        /*
-            TypeCheckError::InIf(
-                TypeCheckIfError::Condition(
-                    TypeError::Mismatch {
-                        expected: bool(),
-                        actual: unit(),
-                    }
-                )
-            )
-            */
+            TypeCheckError {
+                path: vec![InArgument],
+                expected: bool().convert(),
+                actual: unit().convert(),
+            }
         );
 
         type_error!(
             if_then_else(tt(), tt(), point(), bool())
         =>
-            TypeCheckError::InApply(
-                TypeCheckApplyError::Argument(
-                    TypeError::Mismatch {
-                        expected: unit().convert(),
-                        actual: unit().convert(),
-                    }
-                )
-            )
-        /*
-            TypeCheckError::InIf(
-                TypeCheckIfError::FFBranch(
-                    TypeError::Mismatch {
-                        expected: bool(),
-                        actual: unit(),
-                    }
-                )
-            )
-            */
+            TypeCheckError {
+                path: vec![InArgument, InFunction],
+                expected: apply(lambda("_", bool(), bool()), ff()).convert(),
+                actual: unit().convert(),
+            }
         );
     }
 
@@ -303,22 +259,21 @@ mod tests {
         type_error!(
             apply(lambda("_", bool(), point()), point())
         =>
-            TypeCheckError::InApply(
-                TypeCheckApplyError::Argument(
-                    TypeError::Mismatch {
-                        expected: bool().convert(),
-                        actual: unit().convert(),
-                    }
-                )
-            )
+            TypeCheckError {
+                path: vec![InArgument],
+                expected: bool().convert(),
+                actual: unit().convert(),
+            }
         );
 
         type_error!(
             apply(point(), tt())
         =>
-            TypeCheckError::InApply(
-                TypeCheckApplyError::FunctionNotPi(unit().convert())
-            )
+            TypeCheckError {
+                path: vec![InFunction],
+                expected: pi("_", bool(), unit()).convert(),
+                actual: unit().convert(),
+            }
         );
     }
 
