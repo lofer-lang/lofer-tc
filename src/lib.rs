@@ -2,8 +2,8 @@
 #![allow(dead_code)]
 
 mod eval;
-mod programs;
-mod expressions;
+mod untyped;
+mod typed;
 mod substitution;
 mod type_system;
 

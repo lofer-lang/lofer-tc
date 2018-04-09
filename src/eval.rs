@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 
-use programs::*;
+use untyped::*;
 
 fn get_args(mut expr: Expression, mut args: VecDeque<Expression>)
     -> (Expression, VecDeque<Expression>)
 {
-    use programs::Expression::*;
+    use untyped::Expression::*;
     while let ElimApplication { function, argument } = expr {
         expr = *function;
         args.push_front(*argument);
@@ -181,7 +181,7 @@ fn reduce_weak_once(expr: Expression) -> (Expression, bool) {
 fn reduce_args_once(fun: Expression, mut args: VecDeque<Expression>)
     -> (Expression, VecDeque<Expression>, bool)
 {
-    use programs::Expression::*;
+    use untyped::Expression::*;
     match fun {
         ElimApplication { .. } => {
             let (fun, args) = get_args(fun, args);
@@ -251,7 +251,7 @@ fn reduce_args_once(fun: Expression, mut args: VecDeque<Expression>)
 
 #[cfg(test)]
 mod tests {
-    use programs::*;
+    use untyped::*;
 
     macro_rules! irreducible {
         ($before: expr) => {{
