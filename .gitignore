@@ -2,5 +2,5 @@
 /target/
 **/*.rs.bk
 Cargo.lock
-parsers/*.rs
-!parsers/mod.rs
+src/parsers/*.rs
+!src/parsers/mod.rs
