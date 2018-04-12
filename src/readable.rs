@@ -65,9 +65,9 @@ impl fmt::Display for Expression {
         write!(f, "{}", self.head)?;
         for arg in &self.tail {
             if arg.tail.len() == 0 {
-                write!(f, "{} ", arg)?;
+                write!(f, " {}", arg)?;
             } else {
-                write!(f, "({}) ", arg)?;
+                write!(f, " ({})", arg)?;
             }
         }
         Ok(())

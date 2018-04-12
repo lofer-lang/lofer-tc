@@ -12,5 +12,6 @@ HeadExpr: readable::HeadExpression = {
 
 pub TailExpr: readable::Expression = {
     "(" <Expr> ")",
+    <head:HeadExpr> => readable::Expression { <>, tail: Vec::new() },
 };
 
