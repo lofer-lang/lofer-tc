@@ -2,16 +2,29 @@ use readable;
 
 grammar;
 
+pub Fun: readable::Function = {
+    <fname:Name> <vars:Var*> "=" <body:Expr>
+        => readable::Function {<>},
+};
+
+Var: readable::Var = {
+    "(" <name: Name> ":" <typ: Expr> ")" => readable::Var {<>},
+};
+
 pub Expr: readable::Expression = {
     <head:HeadExpr> <tail:TailExpr*> => readable::Expression {<>},
 };
 
 HeadExpr: readable::HeadExpression = {
-    r"[a-zA-Z_]" => readable::HeadExpression::Name(<>.into()),
+    Name => readable::HeadExpression::Name(<>.into()),
 };
 
-pub TailExpr: readable::Expression = {
+TailExpr: readable::Expression = {
     "(" <Expr> ")",
     <head:HeadExpr> => readable::Expression { <>, tail: Vec::new() },
 };
 
+
+Name: String = {
+    r"[a-zA-Z_]+" => <>.into(),
+};
