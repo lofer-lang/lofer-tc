@@ -1,23 +1,23 @@
 
 pub struct Program {
-    output: Function,
-    associated: Vec<Program>,
+    pub output: Function,
+    pub associated: Vec<Program>,
 }
 
 pub struct Function {
-    fname: String,
-    vars: Vec<Var>,
-    body: Expression,
+    pub fname: String,
+    pub vars: Vec<Var>,
+    pub body: Expression,
 }
 
 pub struct Var {
-    name: String,
-    typ: Expression,
+    pub name: String,
+    pub typ: Expression,
 }
 
 pub struct Expression {
-    head: HeadExpression,
-    tail: Vec<Expression>,
+    pub head: HeadExpression,
+    pub tail: Vec<Expression>,
 }
 
 pub enum HeadExpression {

@@ -1,7 +1,7 @@
-mod typed;
+mod readable;
 
 #[test]
 fn parses() {
-    assert_eq!(typed::TermParser::new().parse("(123)"), Ok(123));
+    assert_eq!(readable::ExprParser::new().parse("a b (c d)"), ());
 }
 

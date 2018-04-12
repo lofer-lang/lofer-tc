@@ -1,0 +1,16 @@
+use readable;
+
+grammar;
+
+pub Expr: readable::Expression = {
+    <head:HeadExpr> <tail:TailExpr*> => readable::Expression {<>},
+};
+
+HeadExpr: readable::HeadExpression = {
+    r"[a-zA-Z_]" => readable::HeadExpression::Name(<>.into()),
+};
+
+pub TailExpr: readable::Expression = {
+    "(" <Expr> ")",
+};
+
