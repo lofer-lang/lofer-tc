@@ -1,11 +1,20 @@
-use std::str::FromStr;
+use typed;
 
 grammar;
 
-pub Term: i32 = {
-    <n:Num> => n,
-    "(" <t:Term> ")" => t,
+pub Expr: typed::Expression = { "(" <ApplyExpr> ")" };
+
+ApplyExpr: typed::Expression = {
+    ApplyExpr Expr => typed::apply(<>),
+    Expr,
 };
 
-Num: i32 = <s:r"[0-9]+"> => i32::from_str(s).unwrap();
+//InnerExpr
+    //"Pair" Expr Expr => typed::pair_fn(<>),
+
+    //Expr Expr => typed::apply(<>),
+    //r"[a-zA-Z_]" => typed::var(<>),
+//};
+
+//pub Annotation: typed::Expression = { Expr };
 
