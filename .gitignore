@@ -4,3 +4,4 @@
 Cargo.lock
 src/parsers/*.rs
 !src/parsers/mod.rs
+!src/parsers/readable_programs.rs
