@@ -40,13 +40,15 @@ fn split_indenting_helper<'a, I>(
         loop {
             if let Some(line) = input.peek() {
                 let count = count_indent(*line);
-                if count == line.len() {
+                if count != line.len() {
                     result = Some(count);
                     break;
                 }
             } else {
+                // no lines left, return None
                 break;
             }
+            // empty/whitespace line, skip
             input.next();
         }
         result

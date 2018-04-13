@@ -35,7 +35,7 @@ impl Program {
     fn display_with_indent(self: &Self, indent: usize, f: &mut fmt::Formatter)
         -> Result<(), fmt::Error>
     {
-        write!(f, "{:indent$}{}\n", self.output, indent=indent)?;
+        write!(f, "{:indent$}{}\n", "", self.output, indent=indent)?;
         for subprogram in &self.associated {
             subprogram.display_with_indent(indent + 2, f)?;
         }

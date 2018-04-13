@@ -46,9 +46,9 @@ mod tests {
         let parser = readable_programs::ProgramParser::new();
         parses_single!(parser, "id (x: T) = x\n");
         parses_single!(parser, "\
-output = Pair T U x y\n\
-  U (_x: V) = bool_elim _U Unit _x\n\
-    _U (_: Bool) = Type");
+output = Pair T U x y
+  U (_x: V) = bool_elim _U Unit _x
+    _U (_: Bool) = Type\n");
     }
 }
 
