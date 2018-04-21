@@ -1,9 +1,9 @@
-use programs::*;
+use untyped::*;
 
 pub fn substitute(expr: &Expression, i: usize, value: &Expression)
     -> Expression
 {
-    use programs::Expression::*;
+    use untyped::Expression::*;
     match *expr {
         Variable(m) => {
             if m > i {
@@ -26,7 +26,7 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
         },
 
         IntroType(ref typ) => {
-            use programs::Type::*;
+            use untyped::Type::*;
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {
@@ -49,7 +49,7 @@ pub fn substitute(expr: &Expression, i: usize, value: &Expression)
 pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
     -> Expression
 {
-    use programs::Expression::*;
+    use untyped::Expression::*;
     match *expr {
         Variable(n) => {
             if n < current_offset {
@@ -71,7 +71,7 @@ pub fn deepen(expr: &Expression, extra_depth: usize, current_offset: usize)
         },
 
         IntroType(ref typ) => {
-            use programs::Type::*;
+            use untyped::Type::*;
             match **typ {
                 Void | Unit | Bool | Universe => expr.clone(),
                 Pi { ref domain, ref codomain } => {

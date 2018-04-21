@@ -1,4 +1,4 @@
-use programs;
+use untyped;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expression {
@@ -105,101 +105,101 @@ impl Expression {
         self.convert().reduces_to(other.convert())
     }
 
-    pub fn convert(self: &Self) -> programs::Expression {
+    pub fn convert(self: &Self) -> untyped::Expression {
         self.convert_with(&mut Vec::new())
     }
 
     pub fn convert_with(self: &Self, ctx: &mut Vec<String>)
-        -> programs::Expression
+        -> untyped::Expression
     {
         use self::Expression::*;
         match *self {
             Variable { ref name } => {
                 let num = find_var(ctx, name);
-                programs::var(num)
+                untyped::var(num)
             },
             IntroLambda { ref var_name, ref body, .. } => {
                 ctx.push(var_name.clone());
                 let body = body.convert_with(ctx);
                 ctx.pop();
-                programs::lambda(body)
+                untyped::lambda(body)
             },
             ElimApplication { ref function, ref argument } => {
                 let function = function.convert_with(ctx);
                 let argument = argument.convert_with(ctx);
-                programs::apply(function, argument)
+                untyped::apply(function, argument)
             },
 
             ElimAbsurd { .. } => {
                 // could return point(),
                 // since this will never be applied to a value
-                programs::lambda(programs::var(0))
+                untyped::lambda(untyped::var(0))
             },
 
             IntroPoint => {
-                programs::point()
+                untyped::point()
             },
             ElimTrivial { .. } => {
-                programs::lambda(programs::lambda(programs::var(1)))
+                untyped::lambda(untyped::lambda(untyped::var(1)))
             },
 
             IntroTT => {
-                programs::tt()
+                untyped::tt()
             },
             IntroFF => {
-                programs::ff()
+                untyped::ff()
             },
             ElimIf { .. } => {
-                // TODO write these as `programs::if_fn` etc.
+                // TODO write these as `untyped::if_fn` etc.
                 // (won't happen)
-                programs::Expression::ElimIf
+                untyped::Expression::ElimIf
             },
 
             IntroPair { .. } => {
-                programs::Expression::IntroPair
+                untyped::Expression::IntroPair
             },
             ElimUncurry { .. } => {
-                programs::Expression::ElimUncurry
+                untyped::Expression::ElimUncurry
             },
 
             IntroType(ref ty) => {
                 let ty = &**ty;
                 use self::Type::*;
                 match *ty {
-                    Void => programs::void(),
-                    Unit => programs::unit(),
-                    Bool => programs::bool(),
+                    Void => untyped::void(),
+                    Unit => untyped::unit(),
+                    Bool => untyped::bool(),
                     Pi { ref var_name, ref domain, ref codomain } => {
                         let domain = domain.convert_with(ctx);
                         ctx.push(var_name.clone());
                         let codomain = codomain.convert_with(ctx);
                         ctx.pop();
-                        programs::pi(domain, codomain)
+                        untyped::pi(domain, codomain)
                     },
                     Sigma { ref var_name, ref fst_type, ref snd_type } => {
                         let fst_type = fst_type.convert_with(ctx);
                         ctx.push(var_name.clone());
                         let snd_type = snd_type.convert_with(ctx);
                         ctx.pop();
-                        programs::sigma(fst_type, snd_type)
+                        untyped::sigma(fst_type, snd_type)
                     },
-                    Universe => programs::universe(),
+                    Universe => untyped::universe(),
                 }
             },
 
             SpecialFix { .. } => {
-                let self_apply = programs::lambda(programs::apply(
-                        programs::var(0),
-                        programs::var(0),
+                let self_apply = untyped::lambda(untyped::apply(
+                        untyped::var(0),
+                        untyped::var(0),
                 ));
-                let f_self_apply = programs::lambda(programs::apply(
-                        programs::var(1),
-                        programs::apply(
-                            programs::var(0),
-                            programs::var(0),
+                let f_self_apply = untyped::lambda(untyped::apply(
+                        untyped::var(1),
+                        untyped::apply(
+                            untyped::var(0),
+                            untyped::var(0),
                         ),
                 ));
-                programs::lambda(programs::apply(self_apply, f_self_apply))
+                untyped::lambda(untyped::apply(self_apply, f_self_apply))
             }
         }
     }

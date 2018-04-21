@@ -1,5 +1,5 @@
-use programs::*;
-use expressions;
+use untyped::*;
+use typed;
 use substitution::deepen;
 
 type Context = Vec<(String, Expression)>;
@@ -13,10 +13,10 @@ fn find_var<'a>(ctx: &'a Context, name: &String) -> (usize, &'a Expression) {
     panic!("Name not in scope: `{}`", name);
 }
 
-pub fn type_check(ctx: &mut Context, expr: &expressions::Expression)
+pub fn type_check(ctx: &mut Context, expr: &typed::Expression)
     -> Result<Expression, TypeCheckError>
 {
-    use expressions::Expression::*;
+    use typed::Expression::*;
     match *expr {
         Variable { ref name } => {
             let (i, typ) = find_var(ctx, name);
@@ -120,8 +120,8 @@ impl TypeCheckError {
 fn type_check_lambda(
     ctx: &mut Context,
     var_name: &String,
-    var_type: &expressions::Expression,
-    body: &expressions::Expression,
+    var_type: &typed::Expression,
+    body: &typed::Expression,
 ) -> Result<Expression, TypeCheckError> {
     ctx.push((var_name.clone(), var_type.convert()));
     let maybe_codomain = type_check(ctx, body);
@@ -147,8 +147,8 @@ fn assert_type(
 
 fn type_check_apply(
     ctx: &mut Context,
-    function: &expressions::Expression,
-    argument: &expressions::Expression,
+    function: &typed::Expression,
+    argument: &typed::Expression,
 ) -> Result<Expression, TypeCheckError> {
     use self::ErrorPath::*;
     let fun_type = type_check(ctx, function)
@@ -187,7 +187,7 @@ fn expect_pi_type(fun_type: Expression, arg_type: &Expression)
 
 #[cfg(test)]
 mod tests {
-    use expressions::*;
+    use typed::*;
     use super::type_check;
     use super::TypeCheckError;
     use super::ErrorPath::*;
