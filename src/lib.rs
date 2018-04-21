@@ -5,9 +5,12 @@ extern crate lalrpop_util;
 
 mod eval;
 mod untyped;
-mod typed;
+mod conversion;
 mod readable;
 mod substitution;
+
+// need to internalize this
+mod typed;
 mod type_system;
 
 mod parsers;
