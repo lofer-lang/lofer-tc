@@ -39,32 +39,36 @@ fn convert_programs(programs: Vec<readable::Program>, ctx: &mut Vec<Vec<Term>>)
 
     for program in programs {
         ctx.push(result);
-        let extra_ctx = convert_programs(program.associated, ctx);
-        ctx.push(extra_ctx);
-        let (name, expr) = convert_fun(program.output, ctx);
-        let associated = ctx.pop().unwrap();
+        let (name, expr) = convert_fun(program, ctx);
         result = ctx.pop().unwrap();
-        let expr = wrap_redeces(expr, associated);
         result.push((name, expr));
     }
 
     result
 }
 
-fn convert_fun(fun: readable::Function, ctx: &mut Vec<Vec<Term>>) -> Term {
-    let vars = fun.vars
+fn convert_fun(program: readable::Program, ctx: &mut Vec<Vec<Term>>) -> Term {
+    let vars = program.output.vars
         .into_iter()
         .map(|var| (var.name, untyped::unit()))
         .collect();
     ctx.push(vars);
-    let mut body = convert_body(fun.body, ctx);
+
+    let mut expr = {
+        let associated = convert_programs(program.associated, ctx);
+        ctx.push(associated);
+        let body = convert_body(program.output.body, ctx);
+
+        let associated = ctx.pop().unwrap();
+        wrap_redeces(body, associated)
+    };
 
     let vars = ctx.pop().unwrap();
     for _ in vars {
-        body = untyped::lambda(body);
+        expr = untyped::lambda(expr);
     }
 
-    (fun.fname, body)
+    (program.output.fname, expr)
 }
 
 fn convert_body(body: readable::Expression, ctx: &mut Vec<Vec<Term>>)
