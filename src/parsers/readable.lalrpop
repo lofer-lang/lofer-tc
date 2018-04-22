@@ -1,4 +1,5 @@
 use readable;
+use readable::HeadExpression::*;
 
 grammar;
 
@@ -12,16 +13,54 @@ Var: readable::Var = {
 };
 
 pub Expr: readable::Expression = {
-    <head:HeadExpr> <tail:TailExpr*> => readable::Expression {<>},
+    CommaFreeExpr,
+    <CommaExpr> => readable::Expression {
+        head: Box::new(<>),
+        tail: Vec::new(),
+    },
+};
+
+pub CommaExpr: readable::HeadExpression = {
+    "Sigma" <Name> ":" <CommaFreeExpr> "," <Expr> => Sigma(<>),
+    "Pi" <Name> ":" <CommaFreeExpr> "," <Expr> => Pi(<>),
+};
+
+CommaFreeExpr: readable::Expression = {
+    <head:HeadExprBox> <tail:TailExpr*> => readable::Expression {<>},
+    "(" <Expr> ")",
+};
+
+HeadExprBox: Box<readable::HeadExpression> = {
+    HeadExpr => Box::new(<>),
 };
 
 HeadExpr: readable::HeadExpression = {
-    Name => readable::HeadExpression::Name(<>.into()),
+    Name => Name(<>.into()),
+
+    "void_elim" <TailExpr> => VoidElim(<>),
+
+    "tt" => Point,
+    "unit_elim" <TailExpr> => UnitElim(<>),
+
+    "true" => True,
+    "false" => False,
+    "bool_elim" <TailExpr> => BoolElim(<>),
+
+    "pair" <TailExpr> <TailExpr> => Pair(<>),
+    "sigma_elim" <TailExpr> <TailExpr> <TailExpr> => SigmaElim(<>),
+
+    "Void" => Void,
+    "Unit" => Unit,
+    "Bool" => Bool,
+
+    "Type" => Type,
+
+    "fix" <TailExpr> => Fix(<>),
 };
 
 TailExpr: readable::Expression = {
     "(" <Expr> ")",
-    <head:HeadExpr> => readable::Expression { <>, tail: Vec::new() },
+    <head:HeadExprBox> => readable::Expression { <>, tail: Vec::new() },
 };
 
 

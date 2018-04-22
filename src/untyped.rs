@@ -194,6 +194,16 @@ pub fn var(n: usize) -> Expression {
     Expression::Variable(n)
 }
 
+// could return point(),
+// since this will never be applied to a value
+pub fn absurd() -> Expression {
+    lambda(var(0))
+}
+
+pub fn trivial() -> Expression {
+    lambda(lambda(var(1)))
+}
+
 pub fn point() -> Expression {
     Expression::IntroPoint
 }

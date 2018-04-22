@@ -131,16 +131,14 @@ impl Expression {
             },
 
             ElimAbsurd { .. } => {
-                // could return point(),
-                // since this will never be applied to a value
-                untyped::lambda(untyped::var(0))
+                untyped::absurd()
             },
 
             IntroPoint => {
                 untyped::point()
             },
             ElimTrivial { .. } => {
-                untyped::lambda(untyped::lambda(untyped::var(1)))
+                untyped::trivial()
             },
 
             IntroTT => {
@@ -188,19 +186,8 @@ impl Expression {
             },
 
             SpecialFix { .. } => {
-                let self_apply = untyped::lambda(untyped::apply(
-                        untyped::var(0),
-                        untyped::var(0),
-                ));
-                let f_self_apply = untyped::lambda(untyped::apply(
-                        untyped::var(1),
-                        untyped::apply(
-                            untyped::var(0),
-                            untyped::var(0),
-                        ),
-                ));
-                untyped::lambda(untyped::apply(self_apply, f_self_apply))
-            }
+                untyped::lambda(untyped::fix(untyped::var(1)))
+            },
         }
     }
 }
