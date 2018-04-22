@@ -100,6 +100,11 @@ fn convert_head(head: readable::HeadExpression, ctx: &mut Vec<Vec<Term>>)
 
         Pair(..) => untyped::Expression::IntroPair,
         SigmaElim(..) => untyped::Expression::ElimUncurry,
+
+        Fix(..) => untyped::lambda(untyped::fix(untyped::var(1))),
+
+        // Type info is for typed systems
+        _ => untyped::point(),
     }
 }
 

@@ -186,19 +186,8 @@ impl Expression {
             },
 
             SpecialFix { .. } => {
-                let self_apply = untyped::lambda(untyped::apply(
-                        untyped::var(0),
-                        untyped::var(0),
-                ));
-                let f_self_apply = untyped::lambda(untyped::apply(
-                        untyped::var(1),
-                        untyped::apply(
-                            untyped::var(0),
-                            untyped::var(0),
-                        ),
-                ));
-                untyped::lambda(untyped::apply(self_apply, f_self_apply))
-            }
+                untyped::lambda(untyped::fix(untyped::var(1)))
+            },
         }
     }
 }

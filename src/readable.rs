@@ -35,6 +35,15 @@ pub enum HeadExpression {
 
     Pair(Expression, Expression),
     SigmaElim(Expression, Expression, Expression),
+
+    Void,
+    Unit,
+    Bool,
+    Sigma(String, Expression, Expression),
+    Pi(String, Expression, Expression),
+    Type,
+
+    Fix(Expression),
 }
 
 impl fmt::Display for Program {

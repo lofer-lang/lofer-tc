@@ -13,6 +13,19 @@ Var: readable::Var = {
 };
 
 pub Expr: readable::Expression = {
+    CommaFreeExpr,
+    <CommaExpr> => readable::Expression {
+        head: Box::new(<>),
+        tail: Vec::new(),
+    },
+};
+
+pub CommaExpr: readable::HeadExpression = {
+    "Sigma" <Name> ":" <CommaFreeExpr> "," <Expr> => Sigma(<>),
+    "Pi" <Name> ":" <CommaFreeExpr> "," <Expr> => Pi(<>),
+};
+
+CommaFreeExpr: readable::Expression = {
     <head:HeadExprBox> <tail:TailExpr*> => readable::Expression {<>},
 };
 
@@ -34,6 +47,14 @@ HeadExpr: readable::HeadExpression = {
 
     "pair" <TailExpr> <TailExpr> => Pair(<>),
     "sigma_elim" <TailExpr> <TailExpr> <TailExpr> => SigmaElim(<>),
+
+    "Void" => Void,
+    "Unit" => Unit,
+    "Bool" => Bool,
+
+    "Type" => Type,
+
+    "fix" <TailExpr> => Fix(<>),
 };
 
 TailExpr: readable::Expression = {

@@ -81,7 +81,7 @@ mod tests {
         let parser = readable::FunParser::new();
         parses!(parser, "id (x: T) = x");
         parses!(parser, "const (x: T) (y: U) = x");
-        parses!(parser, "inl (x: T) = Pair true x");
+        parses!(parser, "inl (x: T) = pair true x");
     }
 
     #[test]
