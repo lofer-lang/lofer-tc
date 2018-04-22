@@ -68,6 +68,10 @@ flip (f: _) = f_flipped
 
 The last unindented line of a program is the program's output.
 
+The language cannot directly recurse, and to enforce this, you cannot refer
+to functions before they have been defined.
+Instead see `fix` for a very rough explanation on how to recurse.
+
 Semantics
 ---------
 
@@ -93,6 +97,8 @@ The builtin terms for handling these types are:
 - `void_elim` and `unit_elim` which serve no computational role, but have
   useful types when making safe programs.
 - `bool_elim` and `sigma_elim` which make data types usable
+
+additionally the `fix` term is used to achieve recursion.
 
 The data terms have the following types:
 ```
@@ -125,4 +131,22 @@ bool though!)
 `sigma_elim` is uncurry, it takes a function like `a -> b -> c` and turns it
 into a function like `(a, b) -> c`
 
+The `fix` function is a fixpoint combinator, it takes a generating function,
+and applies it to itself infinitely.
+
+`fix` has the following type:
+`fix: Pi A: Type, Pi f: (Pi _: A, A), A`
+
+Be warned, `fix` can result in very unreadable functions if not fully
+evaluated.
+
+Fix can be used to make recursive types and recursive functions.
+
+In haskell one would write `f x y = something f x y`
+but with fix one must instead write
+```
+f = fix f_gen
+  f_gen f_prev = f_next
+    f_next x y = something f_prev x y
+```
 
