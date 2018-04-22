@@ -74,6 +74,9 @@ mod tests {
         builtin!(parser, "Type");
 
         builtin!(parser, "fix A");
+
+        parses!(parser, "Pi x: (Pi y: A, B y), C x");
+        parses!(parser, "Sigma x: A, Sigma y: B x, C x y");
     }
 
     #[test]

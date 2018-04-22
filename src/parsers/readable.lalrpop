@@ -27,6 +27,7 @@ pub CommaExpr: readable::HeadExpression = {
 
 CommaFreeExpr: readable::Expression = {
     <head:HeadExprBox> <tail:TailExpr*> => readable::Expression {<>},
+    "(" <Expr> ")",
 };
 
 HeadExprBox: Box<readable::HeadExpression> = {
