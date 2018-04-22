@@ -51,8 +51,13 @@ A program is a series of function definitions, which take the form:
 function_name (arg_name: ArgType) (arg_name: ArgType) = expression
 ```
 
-one can replace `ArgType` with `_` since the type checker currently doesn't
-work.
+for now all identifiers (function names and argument names) start with a letter
+or with `_`, followed by any number of letters, numbers, and `_`s, and finished
+with some number of apostrophes.
+
+The type can be skipped, `f x = x` is acceptable.
+This is useful while the type checker doesn't work, but will also be useful
+if/when type inference is added.
 
 Most expressions are just haskell-style function applications, e.g.
 ```
@@ -62,8 +67,8 @@ flip (f: Pi x: A, Pi y: B, C) (y: B) (x: A) = f x y
 Further, lines can be indented to have access to the args of a previous
 function:
 ```
-flip (f: _) = f_flipped
-  f_flipped (y: B) (x: A) = f x y
+flip f = f'
+  f' y x = f x y
 ```
 
 The last unindented line of a program is the program's output.
@@ -146,7 +151,7 @@ In haskell one would write `f x y = something f x y`
 but with fix one must instead write
 ```
 f = fix f_gen
-  f_gen f_prev = f_next
-    f_next x y = something f_prev x y
+  f_gen f0 = f1
+    f1 x y = something f0 x y
 ```
 
