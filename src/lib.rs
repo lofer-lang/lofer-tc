@@ -4,7 +4,7 @@
 extern crate lalrpop_util;
 
 mod eval;
-mod untyped;
+pub mod untyped;
 mod conversion;
 mod readable;
 mod substitution;
