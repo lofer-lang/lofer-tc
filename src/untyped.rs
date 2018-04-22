@@ -119,7 +119,7 @@ impl Expression {
             },
 
             IntroPoint => {
-                write!(fmt, "<>")?;
+                write!(fmt, "tt")?;
             },
 
             IntroTT => {
@@ -133,10 +133,10 @@ impl Expression {
             },
 
             IntroPair => {
-                write!(fmt, "Pair")?;
+                write!(fmt, "pair")?;
             },
             ElimUncurry => {
-                write!(fmt, "uncurry")?;
+                write!(fmt, "sigma_elim")?;
             },
 
             IntroType(ref ty) => {
