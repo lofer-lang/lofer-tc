@@ -103,8 +103,76 @@ impl fmt::Display for HeadExpression {
                 write!(f, "{}", name)?;
             },
 
-            _ => write!(f, "?")?,
+            VoidElim(ref output) => {
+                write!(f, "void_elim {}", output)?;
+            },
+
+            Point => {
+                write!(f, "tt")?;
+            },
+            UnitElim(ref output) => {
+                write!(f, "unit_elim {}", output)?;
+            },
+
+            True => {
+                write!(f, "true")?;
+            },
+            False => {
+                write!(f, "false")?;
+            },
+            BoolElim(ref family) => {
+                write!(f, "bool_elim {}", family)?;
+            },
+
+            Pair(ref fst, ref snd_family) => {
+                write!(f, "pair {} {}", fst, snd_family)?;
+            }
+            SigmaElim(ref fst, ref snd_family, ref output) => {
+                write!(f, "sigma_elim {} {} {}", fst, snd_family, output)?;
+            }
+
+            Void => {
+                write!(f, "Void")?;
+            },
+            Unit => {
+                write!(f, "Unit")?;
+            },
+            Bool => {
+                write!(f, "Bool")?;
+            },
+            Sigma(ref name, ref fst, ref snd_family) => {
+                write!(f, "Sigma {}: ", name)?;
+                comma_free_print(fst, f)?;
+                write!(f, ", {}", snd_family)?;
+            },
+            Pi(ref name, ref arg, ref output_family) => {
+                write!(f, "Pi {}: ", name)?;
+                comma_free_print(arg, f)?;
+                write!(f, ", {}", output_family)?;
+            },
+            Type => {
+                write!(f, "Type")?;
+            },
+
+            Fix(ref output) => {
+                write!(f, "fix {}", output)?;
+            },
         }
         Ok(())
     }
 }
+
+// prints, but adds brackets if the expression has a comma
+fn comma_free_print(expr: &Expression, f: &mut fmt::Formatter)
+    -> Result<(), fmt::Error>
+{
+    use readable::HeadExpression::*;
+    match *expr.head {
+        Pi(..) | Sigma(..) =>
+            write!(f, "({})", expr)?,
+        _ =>
+            write!(f, "{}", expr)?,
+    }
+    Ok(())
+}
+
