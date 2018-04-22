@@ -6,6 +6,7 @@ pub fn convert(programs: Vec<readable::Program>)
 {
     let mut ctx = Vec::new();
     let mut results = convert_programs(programs, &mut ctx);
+    debug_assert!(ctx.len() == 0, "Context improperly handled");
     let inner = results.pop().unwrap().1;
     wrap_redeces(inner, results)
 }
@@ -92,4 +93,32 @@ fn get_var_id(name: String, ctx: &Vec<Vec<Term>>) -> usize {
        .rev()
        .position(|term| term.0 == name.as_str())
        .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use untyped::*;
+
+    macro_rules! converts {
+        ($a: expr => $b: expr) => {{
+            let as_str = $a;
+            let parser = ::parsers::readable_programs::ProgramParser::new();
+            let as_ast = parser.parse(as_str).unwrap();
+            let expected = $b;
+            let actual = convert(as_ast);
+            assert_eq!(actual, expected);
+        }}
+    }
+
+    #[test]
+    fn conversion() {
+        converts!("f (x: a) = x" => lambda(var(0)));
+        converts!("\
+I (x: a) = x
+apply = I" => apply(lambda(var(0)), lambda(var(0))));
+        converts!("\
+f (x: a) = const
+  const (y: b) = x" => lambda(apply(lambda(var(0)), lambda(var(1)))));
+    }
 }

@@ -1,5 +1,5 @@
-mod readable;
-mod readable_programs;
+pub mod readable;
+pub mod readable_programs;
 
 #[cfg(test)]
 mod tests {
