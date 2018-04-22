@@ -10,6 +10,13 @@ pub Fun: readable::Function = {
 
 Var: readable::Var = {
     "(" <name: Name> ":" <typ: Expr> ")" => readable::Var {<>},
+    <name: Name> => {
+        let head = readable::HeadExpression::Point;
+        let head = Box::new(head);
+        let tail = Vec::new();
+        let typ = readable::Expression { head, tail };
+        readable::Var { name, typ }
+    },
 };
 
 pub Expr: readable::Expression = {
@@ -65,5 +72,5 @@ TailExpr: readable::Expression = {
 
 
 Name: String = {
-    r"[a-zA-Z_]+" => <>.into(),
+    r"[a-zA-Z_][a-zA-Z0-9_]*'*" => <>.into(),
 };
