@@ -1,225 +1,128 @@
 
-Dependent Type Theory
-=====================
+Lofer
+=====
 
-Having spent a lot of time thinking about languages I like, and features I
-don't like, and eventually discovering DTT, I have finally come up with a
-formulation for a programming language that I feel does everything I want.
+Lofer is a dependently typed functional language that combines the simplicity
+of Scheme with the strength of Agda/Coq.
 
-In summary there are two languages, a dependently typed functional language,
-and an internalized imperative language. (inspired by IO in haskell etc.)
-The imperative language however, is a true imperative language; actions are not
-a monad, they are a category whose objects are machine states.
+The intention is to use this as a substrate for other more useful languages,
+such that a procedure in one language is a normal object in Lofer.
 
-The functional code will be designed to serialize into a portable form,
-whereas the imperative code will be designed to translate into LLVM,
-implemented by simply pattern matching on possible programs and recursing.
+For now though it is an interesting toy for those interested in type theory
+and/or functional programming.
 
-There are two core ideas that this setup has in mind:
+Program
+=======
 
-Being dependently typed, the functional language could be used to represent
-safety guarantees, which could be baked into your imperative programs.
+The program currently parses human readable code, executes it,
+(without type checking) and displays the result as a lambda expression.
 
-Additionally, by having universes, the functional language could represent
- - module systems,
- - polymorphism,
- - encapsulation,
- - dependency inversion,
-all in the same way, as dependent tuples like `(type, methods)` and/or
-dependent functions `\(type, method) -> method`.
+To use the program, run `cargo run -- "file1" "file2" ...`
+Each file will be parsed into a single expression, and then the first
+expression will be applied to the second, then this to the third, and so on.
 
-Structure
-=========
+The resulting expression is then evaluated, and printed to the screen.
 
-Being a very expressive, low level programming language, it seems it would be
-a good idea to head towards a self-hosting representation.
-What follows is an outline of how this could be done.
+Note
+----
 
-Evaluator
----------
+Functions are not internally evaluated, so you will need to apply them to
+arguments to get sane/readable results.
 
-The evaluator is meant to be a program that takes a dependently typed
-expression, and fully computes any possible beta reductions, outputting the
-result.
+Note that there is no type checker, which does defeat the purpose of having
+a dependently typed language.
+The type checker was implemented a while ago, but after refactoring it was
+never fully reimplemented.
 
-The actual implementation would need to be a pipeline that loads/deserialized a
-functional program from files, evaluates it, then serializes the output to a
-file.
+The plan is to implement the type checker within lofer itself.
 
-Linking multiple files could actually be done as a beta reduction, applying
-your linker program to all of your 'modules'.
-For this reason the evaluator would likely take a series of filenames as input,
-load each file, and repeatedly apply the first file's contents to the others'.
 
-Boot Evaluator
---------------
+Also the errors aren't very helpful at all!
 
-The above evaluator could be written in the imperative language, and then
-evaluate itself into LLVM code, but that requires a bootstrap implementation.
 
-The boot evaluator fills this role, fairly straight-forward.
+Language
+========
 
-Boot Parser
------------
+Syntax
+------
 
-Writing programs in serialized binary format would be very painful in the long-
-term, which is why, like most languages, programs will be written in a human-
-readable form, and then programmatically translated into the serialized form.
-
-Parsing is an exceptionally good application of functional programming, and so
-writing a self hosting parser would be very useful, but until then, a boot
-parser would need to translate the base syntax into bytes.
-
-Base Parser
------------
-
-The base parser would be the functional implementation of the parser, seeking
-only to replicate the boot parser, while adding a macro system.
-
-This means the base parser would define a parsing tree, and then populate it
-sufficiently to parse itself.
-
-Standard Parser
----------------
-
-This is not so much a separate parser, as it is an initial parse tree designed
-to be more sane than the base parser.
-
-The base syntax is designed as a 1-to-1 representation of the serialized form,
-but even this syntax is painful as structures grow in complexity, when you have
-to write such foundational definitions of everything.
-
-The standard parser can be implemented by simply writing a number of macro
-definitions, and applying the base parser to them.
-
-Missing Link(er)
-----------------
-
-The above system currently does not consider layout of files in a file-system.
-Languages such as Rust use the file-system to represent and in fact specify
-the module layout of programs, and doing anything like that requires an initial
-detail that the parsers be passed a full directory tree, rather than individual
-files.
-
-Type System
-===========
-
-The type system is meant to be very small.
-
-Void Type
----------
-
-This type has no constructors, it represents the empty set, unprovable
-theorems, etc.
-
-Unit Type
----------
-
-This type has a single constructor, and can be used to fill gaps in definitions
-of complex types, e.g. as the contents of the Zero constructor in Peano
-arithmetic.
-
-Bool Type
----------
-
-This type has two constructors, and is necessary to define any compound data
-types at all.
-
-Sigma Type
-----------
-
-The classic dependent pair.
-By writing a family of types for the second term, dependent pairs can be
-constructed with the property that `p2 pair` has type `family(p1 pair)` where
-`family` is the family of types, and `pair` is the dependent pair.
-
-Pi Type
--------
-
-Like Sigma types, but a function, so that `func(arg)` has type `family(arg)`.
-
-Universe Types
---------------
-
-Getting things done with these types immediately requires a notion of universe.
-The idea is that there are a series of universes, starting with `U_1`, where
- - `U_1` is the type of all types that can be constructed out of the above
-   connectives,
- - `U_2` is like `U_1`, with the addition of `U_1` as a primitive type.
-   This means types can be expressions now, e.g. `if x then Unit else Void`
- - `U_3` has both `U_1` and `U_2` as primitives, and so on.
-
-When working with universes there tends to be redundancy, writing functions
-that are identical, except for the input parameter being the next universe up.
-This leads to the idea of poly-universality, where expressions are interpreted
-as algebraic `Type_n -> something` where `n` can be chosen at any time, and the
-resulting expression exists within `Type_n+1`.
-
-Whether expressions are actually treated as poly-universal, or there is simply
-a `promote` primitive that bumps an expression up one, is an implementation
-detail.
-
-Universal Induction
--------------------
-
-This is the sort of territory that might allow for horribly inconsistent
-constructions, but certain concepts seem to lend themselves to induction along
-the type of all types.
-
-An example is the observational definition of equality:
+A program is a series of function definitions, which take the form:
 ```
-eq (t: U_n) = match t {
-  Void => Void,
-  Unit => \_->\_->Unit,
-  Bool => \x->\y->
-    if x then
-      (if y then Unit else Void)
-    else
-      (if y then Void else Unit),
-  Sigma(a: t_i, t_f a) => \x->\y->
-    Sigma(eq t_i (p1 x) (p1 y), eq (t_f (p1 x)) (p2 x) (p2 y)),
-  Pi(a: t_i, t_f a) => \f1->\f2->
-    Pi(x: t_i, eq (t_f x) (f1 x) (f2 x)),
-}
+function_name (arg_name: ArgType) (arg_name: ArgType) = expression
 ```
 
-This can then be used in any universe, assuming that `U_1` is treated as a
-normal coinductive type defined like any other in `U_2`.
+one can replace `ArgType` with `_` since the type checker currently doesn't
+work.
 
-Imperative Type System
-======================
-
-The imperative type system is just an inductive type, akin to saying
-
-A data structure is either:
- - a byte,
- - a memory adress,
- - two structures in sequence, or
- - one structure plus a safety constraint.
-
-Similarly the type system for procedures is akin to
-
-A procedure either:
- - does nothing,
- - composes two procedures in order,
- - manipulates data layout without changing contents,
- - applies a procedure alongside an extra unchanged variable,
- - applies a primitive operation such as reading, writing, arithmetic, etc.
-
-The proof system would allow you to write functional objects representing facts
-about the contents of variables.
-This would be enforced by the primitive procedures, e.g. addition of even
-numbers:
+Most expressions are just haskell-style function applications, e.g.
 ```
-value_is_even = (* something *).
-evens_add_to_evens = (* some number theory proof *).
-even_byte = Constraint Byte value_is_even.
-add_even: Proc (Pair even_byte even_byte) even_byte
-add_even = Add (evens_add_to_evens).
+flip (f: Pi x: A, Pi y: B, C) (y: B) (x: A) = f x y
 ```
 
-It is currently uncertain how the "proof that a structure contains a value"
-should work.
+Further, lines can be indented to have access to the args of a previous
+function:
+```
+flip (f: _) = f_flipped
+  f_flipped (y: B) (x: A) = f x y
+```
 
-It is even more uncertain how proofs about dynamic memory locations should
-work!
+The last unindented line of a program is the program's output.
+
+Semantics
+---------
+
+Conceptually the language has 6 types/connectives,
+- Void (has no values)
+- Unit (has one value: `tt`)
+- Bool (has two values: `true` and `false`)
+- Sigma (combines a type with a type family, basically pair type)
+- Pi (maps one type to a type family, basically function type)
+- Type, the type of all types
+
+Sigma and Pi are dependently typed, which lets you write types like
+```
+Pi x: Bool, bool_elim _ Unit Bool x
+```
+which is the type of functions that map `true` to `tt` and `false` to some
+Bool.
+
+
+The builtin terms for handling these types are:
+- `tt`, `true`, `false` values
+- `pair` function which turns two values into a pair
+- `void_elim` and `unit_elim` which serve no computational role, but have
+  useful types when making safe programs.
+- `bool_elim` and `sigma_elim` which make data types usable
+
+The data terms have the following types:
+```
+tt: Unit
+true: Bool
+false: Bool
+pair: Pi Fst: Type, Pi Snd: (Pi _: Fst, Type),
+  Pi x0: Fst, Pi y: Snd x0, Sigma x1: Fst, Snd x1
+```
+
+And the eliminators have the following types (For the brave)
+```
+void_elim: Pi A: Type, Pi _: Void, A
+unit_elim: Pi A: (Pi _: Unit, Type),
+  Pi _: A tt, Pi x: Unit, A x
+bool_elim: Pi A: (Pi _: Bool, Type),
+  Pi t: A true, Pi f: A false, Pi x: Bool, A x
+sigma_elim: Pi Fst: Type, Pi Snd: (Pi _: Fst, Type),
+  Pi Out: (Pi _: (Sigma x: Fst, Snd x), Type),
+    Pi f: (Pi x: Fst, Pi y: Snd x, Out (pair x y)),
+      Pi p: (Sigma x: A, B x), Out p
+```
+
+These last two eliminators are better understood by what they actually do:
+
+`bool_elim` is an if-then-else function, that takes two branches, and returns
+one of them based on the bool input. (It takes the branches before it takes the
+bool though!)
+
+`sigma_elim` is uncurry, it takes a function like `a -> b -> c` and turns it
+into a function like `(a, b) -> c`
+
+
