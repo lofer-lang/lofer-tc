@@ -74,7 +74,7 @@ fn convert_fun(program: readable::Program, ctx: &mut Vec<Vec<Term>>) -> Term {
 fn convert_body(body: readable::Expression, ctx: &mut Vec<Vec<Term>>)
     -> untyped::Expression
 {
-    let mut result = convert_head(body.head, ctx);
+    let mut result = convert_head(*body.head, ctx);
     for arg in body.tail {
         let arg = convert_body(arg, ctx);
         result = untyped::apply(result, arg);
@@ -88,6 +88,18 @@ fn convert_head(head: readable::HeadExpression, ctx: &mut Vec<Vec<Term>>)
     use readable::HeadExpression::*;
     match head {
         Name(name) => untyped::var(get_var_id(name, ctx)),
+
+        VoidElim(..) => untyped::absurd(),
+
+        Point => untyped::point(),
+        UnitElim(..) => untyped::trivial(),
+
+        True => untyped::tt(),
+        False => untyped::ff(),
+        BoolElim(..) => untyped::Expression::ElimIf,
+
+        Pair(..) => untyped::Expression::IntroPair,
+        SigmaElim(..) => untyped::Expression::ElimUncurry,
     }
 }
 

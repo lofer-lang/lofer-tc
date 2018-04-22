@@ -131,16 +131,14 @@ impl Expression {
             },
 
             ElimAbsurd { .. } => {
-                // could return point(),
-                // since this will never be applied to a value
-                untyped::lambda(untyped::var(0))
+                untyped::absurd()
             },
 
             IntroPoint => {
                 untyped::point()
             },
             ElimTrivial { .. } => {
-                untyped::lambda(untyped::lambda(untyped::var(1)))
+                untyped::trivial()
             },
 
             IntroTT => {

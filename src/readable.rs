@@ -17,12 +17,24 @@ pub struct Var {
 }
 
 pub struct Expression {
-    pub head: HeadExpression,
+    pub head: Box<HeadExpression>,
     pub tail: Vec<Expression>,
 }
 
 pub enum HeadExpression {
     Name(String),
+
+    VoidElim(Expression),
+
+    Point,
+    UnitElim(Expression),
+
+    True,
+    False,
+    BoolElim(Expression),
+
+    Pair(Expression, Expression),
+    SigmaElim(Expression, Expression, Expression),
 }
 
 impl fmt::Display for Program {
@@ -81,6 +93,8 @@ impl fmt::Display for HeadExpression {
             Name(ref name) => {
                 write!(f, "{}", name)?;
             },
+
+            _ => write!(f, "?")?,
         }
         Ok(())
     }

@@ -1,4 +1,5 @@
 use readable;
+use readable::HeadExpression::*;
 
 grammar;
 
@@ -12,16 +13,32 @@ Var: readable::Var = {
 };
 
 pub Expr: readable::Expression = {
-    <head:HeadExpr> <tail:TailExpr*> => readable::Expression {<>},
+    <head:HeadExprBox> <tail:TailExpr*> => readable::Expression {<>},
+};
+
+HeadExprBox: Box<readable::HeadExpression> = {
+    HeadExpr => Box::new(<>),
 };
 
 HeadExpr: readable::HeadExpression = {
-    Name => readable::HeadExpression::Name(<>.into()),
+    Name => Name(<>.into()),
+
+    "void_elim" <TailExpr> => VoidElim(<>),
+
+    "tt" => Point,
+    "unit_elim" <TailExpr> => UnitElim(<>),
+
+    "true" => True,
+    "false" => False,
+    "bool_elim" <TailExpr> => BoolElim(<>),
+
+    "pair" <TailExpr> <TailExpr> => Pair(<>),
+    "sigma_elim" <TailExpr> <TailExpr> <TailExpr> => SigmaElim(<>),
 };
 
 TailExpr: readable::Expression = {
     "(" <Expr> ")",
-    <head:HeadExpr> => readable::Expression { <>, tail: Vec::new() },
+    <head:HeadExprBox> => readable::Expression { <>, tail: Vec::new() },
 };
 
 

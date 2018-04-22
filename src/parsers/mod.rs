@@ -31,6 +31,18 @@ mod tests {
     fn expr_parsing() {
         let parser = readable::ExprParser::new();
         parses!(parser, "a b (c d)");
+
+        parses!(parser, "void_elim result");
+
+        parses!(parser, "tt");
+        parses!(parser, "unit_elim family");
+
+        parses!(parser, "true");
+        parses!(parser, "false");
+        parses!(parser, "bool_elim family");
+
+        parses!(parser, "pair fst snd_fam");
+        parses!(parser, "sigma_elim fst snd_fam out_fam");
     }
 
     #[test]
