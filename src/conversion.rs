@@ -124,7 +124,7 @@ mod tests {
     macro_rules! converts {
         ($a: expr => $b: expr) => {{
             let as_str = $a;
-            let parser = ::parsers::readable_programs::ProgramParser::new();
+            let parser = ::parsers::ProgramParser::new();
             let as_ast = parser.parse(as_str).unwrap();
             let expected = $b;
             let actual = convert(as_ast);
@@ -141,5 +141,28 @@ apply = I" => apply(lambda(var(0)), lambda(var(0))));
         converts!("\
 f (x: a) = const
   const (y: b) = x" => lambda(apply(lambda(var(0)), lambda(var(1)))));
+    }
+
+    #[test]
+    fn builtins() {
+        converts!("x A = void_elim A" => lambda(absurd()));
+
+        converts!("x = tt" => point());
+        converts!("x A = unit_elim A" => lambda(trivial()));
+
+        converts!("x = true" => tt());
+        converts!("x = false" => ff());
+        converts!("x A = bool_elim A" => lambda(
+            Expression::ElimIf,
+        ));
+
+        converts!("x A B = pair A B" => lambda(lambda(
+            Expression::IntroPair,
+        )));
+        converts!("x A B C = sigma_elim A B C" => lambda(lambda(lambda(
+            Expression::ElimUncurry,
+        ))));
+
+        converts!("x A = fix A" => lambda(lambda(fix(var(1)))));
     }
 }

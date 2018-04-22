@@ -51,6 +51,7 @@ mod tests {
     fn expr_parsing() {
         let parser = readable::ExprParser::new();
         parses!(parser, "a b (c d)");
+        parses!(parser, "f f' f1 f2 f2'");
     }
 
     #[test]
