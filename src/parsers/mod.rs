@@ -1,5 +1,7 @@
-pub mod readable;
-pub mod readable_programs;
+mod readable;
+mod readable_programs;
+
+pub use self::readable_programs::ProgramParser;
 
 #[cfg(test)]
 mod tests {
