@@ -6,7 +6,7 @@ extern crate lalrpop_util;
 mod eval;
 pub mod untyped;
 pub mod conversion;
-mod readable;
+pub mod readable;
 mod substitution;
 
 // need to internalize this
