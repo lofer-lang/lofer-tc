@@ -38,7 +38,8 @@ pub Expr: readable::Expression = {
 
 pub CommaExpr: readable::HeadExpression = {
     "Sigma" <Name> ":" <CommaFreeExpr> "," <Expr> => Sigma(<>),
-    "Pi" <Name> ":" <CommaFreeExpr> "," <Expr> => Pi(<>),
+    "Pi" <Name+> ":" <CommaFreeExpr> "," <Expr> => Pi(<>),
+    <CommaFreeExpr> "->" <Expr> => Pi(vec!["_".into()], <>),
 };
 
 CommaFreeExpr: readable::Expression = {

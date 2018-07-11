@@ -21,11 +21,13 @@ pub struct Annotation {
     pub typ: Expression,
 }
 
+#[derive(Clone)]
 pub struct Expression {
     pub head: Box<HeadExpression>,
     pub tail: Vec<Expression>,
 }
 
+#[derive(Clone)]
 pub enum HeadExpression {
     Name(String),
 
@@ -45,7 +47,7 @@ pub enum HeadExpression {
     Unit,
     Bool,
     Sigma(String, Expression, Expression),
-    Pi(String, Expression, Expression),
+    Pi(Vec<String>, Expression, Expression),
     Type,
 
     Fix(Expression),
@@ -150,8 +152,12 @@ impl fmt::Display for HeadExpression {
                 comma_free_print(fst, f)?;
                 write!(f, ", {}", snd_family)?;
             },
-            Pi(ref name, ref arg, ref output_family) => {
-                write!(f, "Pi {}: ", name)?;
+            Pi(ref names, ref arg, ref output_family) => {
+                write!(f, "Pi")?;
+                for name in names {
+                    write!(f, " {}", name)?;
+                }
+                write!(f, ": ")?;
                 comma_free_print(arg, f)?;
                 write!(f, ", {}", output_family)?;
             },
