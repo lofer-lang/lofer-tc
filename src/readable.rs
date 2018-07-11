@@ -5,13 +5,18 @@ pub struct Program {
     pub associated: Vec<Program>,
 }
 
+pub enum Line {
+    Function(Function),
+    Annotation(Annotation),
+}
+
 pub struct Function {
     pub fname: String,
-    pub vars: Vec<Var>,
+    pub vars: Vec<Annotation>,
     pub body: Expression,
 }
 
-pub struct Var {
+pub struct Annotation {
     pub name: String,
     pub typ: Expression,
 }
@@ -75,7 +80,7 @@ impl fmt::Display for Function {
     }
 }
 
-impl fmt::Display for Var {
+impl fmt::Display for Annotation {
     fn fmt(self: &Self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}: {}", self.name, self.typ)
     }

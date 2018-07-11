@@ -3,20 +3,29 @@ use readable::HeadExpression::*;
 
 grammar;
 
+pub Line: readable::Line = {
+    <Fun> => readable::Line::Function(<>),
+    <Annotation> => readable::Line::Annotation(<>),
+};
+
 pub Fun: readable::Function = {
     <fname:Name> <vars:Var*> "=" <body:Expr>
         => readable::Function {<>},
 };
 
-Var: readable::Var = {
-    "(" <name: Name> ":" <typ: Expr> ")" => readable::Var {<>},
+Var: readable::Annotation = {
+    "(" <Annotation> ")",
     <name: Name> => {
         let head = readable::HeadExpression::Point;
         let head = Box::new(head);
         let tail = Vec::new();
         let typ = readable::Expression { head, tail };
-        readable::Var { name, typ }
+        readable::Annotation { name, typ }
     },
+};
+
+pub Annotation: readable::Annotation = {
+    <name: Name> ":" <typ: Expr> => readable::Annotation {<>},
 };
 
 pub Expr: readable::Expression = {

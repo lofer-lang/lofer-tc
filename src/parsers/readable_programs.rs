@@ -3,7 +3,7 @@ use std::iter;
 use readable;
 use parsers;
 
-pub struct ProgramParser(parsers::readable::FunParser);
+pub struct ProgramParser(parsers::readable::LineParser);
 
 fn count_indent(line: &str) -> usize {
     let mut result = 0;
@@ -104,7 +104,7 @@ type Error<'a> = ::lalrpop_util::ParseError<usize,
 
 impl ProgramParser {
     pub fn new() -> Self {
-        let inner = parsers::readable::FunParser::new();
+        let inner = parsers::readable::LineParser::new();
 
         ProgramParser(inner)
     }
@@ -130,9 +130,11 @@ impl ProgramParser {
 
         for indented in indented {
             let output = self.0.parse(&indented.line)?;
-            let associated = self.from_indented(&indented.sublines)?;
-            let program = readable::Program { output, associated };
-            result.push(program);
+            if let readable::Line::Function(output) = output {
+                let associated = self.from_indented(&indented.sublines)?;
+                let program = readable::Program { output, associated };
+                result.push(program);
+            }
         }
 
         Ok(result)
