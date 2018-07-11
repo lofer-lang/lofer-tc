@@ -14,7 +14,7 @@ fn read_code(parser: &parsers::ProgramParser, path: &str)
     let mut contents = String::new();
     file.read_to_string(&mut contents).expect("Failed to read file");
 
-    let programs = parser.parse(&contents).expect("Failed to parse file");
+    let programs = parser.parse(&contents);
     programs
 }
 
