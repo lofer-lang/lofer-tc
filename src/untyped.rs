@@ -133,6 +133,8 @@ impl Expression {
             },
 
             IntroPair => {
+                // TODO print as tuples?
+                // pair x (pair y z) => (x, y, z)?
                 write!(fmt, "pair")?;
             },
             ElimUncurry => {

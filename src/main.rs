@@ -5,17 +5,17 @@ use std::io::prelude::*;
 
 use lofer_lang::conversion;
 use lofer_lang::parsers;
-use lofer_lang::untyped;
+use lofer_lang::readable;
 
 fn read_code(parser: &parsers::ProgramParser, path: &str)
-    -> untyped::Expression
+    -> Vec<readable::Program>
 {
     let mut file = File::open(path).expect("Failed to open file");
     let mut contents = String::new();
     file.read_to_string(&mut contents).expect("Failed to read file");
 
-    let programs = parser.parse(&contents).expect("Failed to parse file");
-    conversion::convert(programs)
+    let programs = parser.parse(&contents);
+    programs
 }
 
 fn main() {
@@ -24,11 +24,8 @@ fn main() {
 
     let parser = parsers::ProgramParser::new();
 
-    let mut expr = untyped::lambda(untyped::var(0));
-    for path in args {
-        let next_expr = read_code(&parser, &path);
-        expr = untyped::apply(expr, next_expr);
-    }
+    let programses = args.map(|path| read_code(&parser, &path)).collect();
+    let expr = conversion::convert(programses);
 
     let result = expr.reduce();
 

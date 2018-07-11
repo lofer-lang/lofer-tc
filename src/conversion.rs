@@ -1,14 +1,24 @@
 use readable;
 use untyped;
 
-pub fn convert(programs: Vec<readable::Program>)
+pub fn convert(programs: Vec<Vec<readable::Program>>)
     -> untyped::Expression
 {
-    let mut ctx = Vec::new();
-    let mut results = convert_programs(programs, &mut ctx);
-    debug_assert!(ctx.len() == 0, "Context improperly handled");
-    let inner = results.pop().unwrap().1;
-    wrap_redeces(inner, results)
+    let mut ctx = vec![vec![]];
+    for program in programs {
+        let mut result_ctx = convert_programs(program, &mut ctx);
+        debug_assert!(ctx.len() == 1, "Context improperly handled");
+        let result = wrap_redeces_1(result_ctx);
+        ctx[0].push(result);
+    }
+    let final_result = wrap_redeces_1(ctx.pop().unwrap());
+    final_result.1
+}
+
+fn wrap_redeces_1(mut vals: Vec<Term>) -> Term {
+    let (name, val_open) = vals.pop().unwrap();
+    let val_closed = wrap_redeces(val_open, vals);
+    (name, val_closed)
 }
 
 fn wrap_redeces(mut inner: untyped::Expression, mut ctx: Vec<Term>)
