@@ -1,17 +1,13 @@
-// TODO remove this
-#![allow(dead_code)]
-
+#[macro_use]
 extern crate lalrpop_util;
 
-mod eval;
-pub mod untyped;
-pub mod conversion;
-pub mod readable;
-mod substitution;
+pub mod ast;
+mod indent_parser;
 
-// need to internalize this
-mod typed;
-mod type_system;
+// why am I even using lalrpop for such a simple grammar
+// f : (x1: A) -> (x2: B) -> (x3: C) -> D
+// f x1 x2 x3 = a (b c (d e) f) g h
+lalrpop_mod!(line_parser);
 
-pub mod parsers;
+pub use indent_parser::ProgramParser;
 

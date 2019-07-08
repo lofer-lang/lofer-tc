@@ -3,12 +3,8 @@ extern crate lofer_lang;
 use std::fs::File;
 use std::io::prelude::*;
 
-use lofer_lang::conversion;
-use lofer_lang::parsers;
-use lofer_lang::readable;
-
-fn read_code(parser: &parsers::ProgramParser, path: &str)
-    -> Vec<readable::Program>
+fn read_code(parser: &lofer_lang::ProgramParser, path: &str)
+    -> Vec<lofer_lang::ast::Item>
 {
     let mut file = File::open(path).expect("Failed to open file");
     let mut contents = String::new();
@@ -22,12 +18,12 @@ fn main() {
     let mut args = ::std::env::args();
     args.next();  // first argument is executable itself
 
-    let parser = parsers::ProgramParser::new();
+    let parser = lofer_lang::ProgramParser::new();
 
-    let programses = args.map(|path| read_code(&parser, &path)).collect();
-    let expr = conversion::convert(programses);
+    let programses: Vec<_> = args.map(|path| read_code(&parser, &path)).collect();
+    //let expr = conversion::convert(programses);
 
-    let result = expr.reduce();
+    //let result = expr.reduce();
 
-    println!("Result:\n  {:?}", result);
+    //println!("Result:\n  {:?}", result);
 }

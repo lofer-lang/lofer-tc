@@ -1,0 +1,50 @@
+use ast;
+
+grammar;
+
+pub Line: ast::Line = {
+    <Fun> => ast::Line::Function(<>),
+    <Annotation> => ast::Line::Annotation(<>),
+};
+
+Fun: ast::Function = {
+    <fname:Name> <vars:Name*> "=" <body:Expr>
+        => ast::Function {<>},
+};
+
+Annotation: ast::Annotation = {
+    <name: Name> ":" <typ: Expr> => ast::Annotation {<>},
+};
+
+Expr: ast::Expr = {
+    ArrowExpr => ast::Expr::Arrow(<>),
+    AlgExpr => ast::Expr::Alg(<>),
+};
+
+AlgExpr: ast::AlgExpr = {
+    //"(" <AlgExpr> ")",
+    <head: Name> <tail: ArgExpr*> => ast::AlgExpr{<>},
+};
+ArgExpr: ast::Expr = {
+    "(" <Expr> ")",
+    <head: Name> => ast::Expr::Alg(ast::AlgExpr { head, tail: Vec::new() }),
+};
+
+ArrowExpr: ast::ArrowExpr = {
+    <params: (<Param> "->")+> <output: AlgExpr> =>
+        ast::ArrowExpr{params, output: Box::new(ast::Expr::Alg(output))},
+};
+
+Box<T>: Box<T> = {
+    <T> => Box::new(<>),
+};
+
+Param: (Option<String>, ast::Expr) = {
+    "(" <name: Name> ":" <ty: Expr> ")" => (Some(name), ty),
+    "(" <ty: Expr> ")" => (None, ty),
+    <ty: AlgExpr> => (None, ast::Expr::Alg(ty)),
+};
+
+Name: String = {
+    r"[a-zA-Z_][a-zA-Z0-9_]*'*" => <>.into(),
+};
