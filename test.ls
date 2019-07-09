@@ -5,9 +5,6 @@ id _ x = x
 const: (A: Type) -> (B: Type) -> A -> B -> A
 const _ _ x _ = x
 
-discard: (A: Type) -> (B: Type) -> A -> B -> B
-discard A B _ = id B
-
 leak: (A: Type) -> (B: Type) -> A -> B -> B
 leak _ _ _ x = x
 
