@@ -20,7 +20,11 @@ fn main() {
 
     let parser = lofer_lang::ProgramParser::new();
 
-    let programses: Vec<_> = args.map(|path| read_code(&parser, &path)).collect();
+    for path in args {
+        let program = read_code(&parser, &path);
+
+        lofer_lang::type_check_all(program);
+    }
     //let expr = conversion::convert(programses);
 
     //let result = expr.reduce();

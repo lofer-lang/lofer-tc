@@ -1,13 +1,16 @@
+#[derive(Clone)]
 pub enum Expr {
     Arrow(ArrowExpr),
     Alg(AlgExpr),
 }
 
+#[derive(Clone)]
 pub struct ArrowExpr {
     pub params: Vec<(Option<String>, Expr)>,
     pub output: Box<Expr>,
 }
 
+#[derive(Clone)]
 pub struct AlgExpr {
     pub head: String,
     pub tail: Vec<Expr>,
