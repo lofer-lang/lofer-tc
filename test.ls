@@ -15,6 +15,6 @@ compose: (A: Type) -> (B: Type) -> (C: Type) -> (B -> C) -> (A -> B) -> A -> C
 compose _ _ _ f g x = f (g x)
 
 s: (A: Type) -> (B: A -> Type) -> (C: (x: A) -> B x -> Type) ->\
-  ((x: A) -> (y: B x) -> C x y) -> (g: (x: A) -> B x) -> (x: A) -> A
+  ((x: A) -> (y: B x) -> C x y) -> (g: (x: A) -> B x) -> (x: A) -> C x (g x)
 s _ _ _ f g x = f x (g x)
 

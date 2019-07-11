@@ -16,6 +16,7 @@ pub fn type_check_all(programs: Vec<ast::Item>) {
     let mut globals = Vec::with_capacity(programs.len());
     for item in &programs {
         let (name, ty) = type_check_function(&global_names, &globals, item);
+        println!("Success: {}", name);
         global_names.push(name);
         globals.push(ty);
     }
@@ -63,17 +64,19 @@ fn type_check_function(
     (fun.definition.fname.clone(), annotation)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+// @Completeness need to manually implement our own comparison (instead of PartialEq)
+// since Arrows with different unshadowed values may be equivalent
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Ident {
     //Postulate(usize),
     Global(usize),
     Local(usize),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 enum Expr {
     Type,
-    Arrow(Vec<Expr>),
+    Arrow { unshadowed: usize, ends: Vec<Expr> },
     Alg { head: Ident, tail: Vec<Expr> },
 }
 
@@ -134,15 +137,15 @@ fn convert_expr(
 ) -> Expr {
     match expr {
         ast::Expr::Arrow(ast::ArrowExpr { params, output }) => {
-            let mut out = Vec::new();
+            let mut ends = Vec::new();
             let mut locals = locals.push();
             for (name, ty) in params {
+                ends.push(convert_expr(globals, &locals, ty));
                 locals.this.push(name.unwrap_or("_".into()));
-                out.push(convert_expr(globals, &locals, ty));
             }
             // TODO detect arrow to arrow and merge
-            out.push(convert_expr(globals, &locals, *output));
-            Expr::Arrow(out)
+            ends.push(convert_expr(globals, &locals, *output));
+            Expr::Arrow { unshadowed: locals.size(), ends }
         },
         ast::Expr::Alg(ast::AlgExpr { head, tail }) => {
             let head = {
@@ -173,7 +176,7 @@ fn convert_expr(
 fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Context, Expr) {
     if ctx.len() > n + 1 {
         let terms = ctx.drain(n..).collect();
-        (ctx, Expr::Arrow(terms))
+        (ctx, Expr::Arrow { unshadowed: n, ends: terms })
     } else if ctx.len() == n + 1 {
         let output = ctx.pop().unwrap();
         (ctx, output)
@@ -183,7 +186,7 @@ fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Context, Expr) {
 }
 
 fn split_ctx_output(expr: Expr, n: usize) -> (Context, Expr) {
-    if let Expr::Arrow(ends) = expr {
+    if let Expr::Arrow { ends, .. } = expr {
         split_ctx_output_vec(ends, n)
     } else {
         if n == 0 {
@@ -203,7 +206,7 @@ fn type_check_expr(
     let actual = determine_type(globals, locals, expr);
     // @Completeness evaluate actual and expected first?
     if actual != *expected {
-        panic!("Types did not match");
+        panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
 }
 
@@ -216,7 +219,7 @@ fn determine_type(
 ) -> Expr {
     match expr {
         Expr::Type => Expr::Type,
-        Expr::Arrow(ends) => {
+        Expr::Arrow { ends, .. } => {
             for each in ends {
                 type_check_expr(globals, locals, each, &Expr::Type);
             }
@@ -224,20 +227,19 @@ fn determine_type(
         },
         Expr::Alg{head, tail} => {
             let mut checked = 0;
-            let mut expr_ty = match *head {
-                Ident::Local(i) => locals[i].clone(),
-                Ident::Global(i) => globals[i].clone(),
+            let (mut expr_ty, expr_ctx_size) = match *head {
+                Ident::Local(i) => (locals[i].clone(), i),
+                Ident::Global(i) => (globals[i].clone(), 0),
             };
             while checked < tail.len() {
                 match expr_ty {
-                    Expr::Arrow(ends) => {
+                    Expr::Arrow { ends, .. } => {
                         while checked < tail.len() && checked < ends.len() - 1 {
                             // @Memory maybe subst could take &mut param?
                             // @Performance skip this cloning operation if i is 0?
                             let param_ty = subst(
-                                &ends[checked],
-                                &tail[0..checked],
-                                locals.len()
+                                &ends[checked], expr_ctx_size,
+                                &tail[0..checked], locals.len(),
                             );
                             type_check_expr(
                                 globals,
@@ -248,17 +250,19 @@ fn determine_type(
                             checked += 1;
                         }
                         if checked < ends.len() - 1 {
-                            expr_ty = Expr::Arrow(ends[checked..].to_owned());
+                            expr_ty = Expr::Arrow {
+                                unshadowed: expr_ctx_size + checked,
+                                ends: ends[checked..].to_owned()
+                            };
                         } else { // checked == ends.len() - 1
                             expr_ty = {ends}.pop().unwrap();
                         }
-                        expr_ty = subst(&expr_ty, &tail[0..checked], locals.len());
+                        expr_ty = subst(
+                            &expr_ty, expr_ctx_size,
+                            &tail[0..checked], locals.len(),
+                        );
                     },
                     Expr::Alg { head, tail } => {
-                        match head {
-                            Ident::Local(i) => println!("Local {}", i),
-                            Ident::Global(i) => println!("Global {}", i),
-                        }
                         // attempt to reduce and if it can't be reduced complain
                         unimplemented!();
                     },
@@ -272,57 +276,71 @@ fn determine_type(
     }
 }
 
-// s A B C f g x = f x (g x)
-// should type check but we need to think carefully
-// about how we handle local variables
-// e.g. the x in `C: (x: A) -> B x -> Type` will have id 2 (one more than B)
-// but then C itself gets id 2...
-// additionally the x in `f: (x: A) -> (y: B x) -> C x y` will have id 3
-// but we probably try to substitute into id n + 0 = 5
-// finally globals will have their own context entirely
-fn subst(expr: &Expr, args: &[Expr], ctx_size: usize) -> Expr {
-    match expr {
+// takes an expression M valid in G1, (a + m + e variables)
+// and a set of arguments X1..Xm valid in G2 (n variables) where a <= n
+// then generates an expression M[x(a+i) <- Xi, x(a+m+i) <- x(n+i)]
+fn subst(
+    base: &Expr, base_ctx_size: usize,
+    args: &[Expr], arg_ctx_size: usize,
+) -> Expr {
+    match base {
         Expr::Type => Expr::Type,
-        Expr::Arrow(ends) => {
+        &Expr::Arrow { unshadowed, ref ends } => {
+            // what on earth am I doing here
+            let new_args = {
+                if unshadowed <= base_ctx_size {
+                    // ignore arguments... does subst do anything?
+                    0
+                } else if unshadowed <= base_ctx_size + args.len() {
+                    // substitute some arguments
+                    unshadowed - base_ctx_size
+                } else {
+                    // substitute all arguments and add some 
+                    args.len()
+                }
+            };
             let mut new_ends = Vec::with_capacity(ends.len());
-            for end in ends {
+            for end in ends.iter() {
                 // I love non-relative indexing
-                new_ends.push(subst(end, args, ctx_size));
+                // the extra variables generated
+                // by iterating through these parameters
+                // are handled by the third branch
+                // in the Local(i) code below
+                new_ends.push(subst(end, base_ctx_size,
+                                    &args[0..new_args], arg_ctx_size));
             }
-            Expr::Arrow(new_ends)
+            Expr::Arrow { unshadowed: arg_ctx_size, ends: new_ends }
         },
         Expr::Alg { head, tail } => {
-            let mut result = match *head {
+            let new_head;
+            let mut new_tail = Vec::new();
+            match *head {
                 Ident::Local(i) => {
-                    if i < ctx_size {
-                        Expr::Alg {
-                            head: Ident::Local(i),
-                            tail: Vec::with_capacity(tail.len()),
+                    if i < base_ctx_size {
+                        new_head =  Ident::Local(i);
+                    } else if i - base_ctx_size < args.len() {
+                        let result = args[i - base_ctx_size].clone();
+                        if let Expr::Alg { head, tail } = result {
+                            new_head = head;
+                            new_tail = tail;
+                        } else if tail.len() == 0 {
+                            return result;
+                        } else {
+                            panic!("Substituted builtin type into head position... cannot apply type to arguments");
                         }
-                    } else if i - ctx_size < args.len() {
-                        args[i - ctx_size].clone()
                     } else {
-                        Expr::Alg {
-                            head: Ident::Local(i - args.len()),
-                            tail: Vec::with_capacity(tail.len()),
-                        }
+                        let e = i - (base_ctx_size + args.len());
+                        new_head = Ident::Local(arg_ctx_size + e);
                     }
                 },
-                Ident::Global(_) => Expr::Alg {
-                    head: *head,
-                    tail: Vec::with_capacity(tail.len()),
-                },
-            };
-            if tail.len() > 0 {
-                if let Expr::Alg { tail: new_tail, .. } = &mut result {
-                    for expr in tail {
-                        new_tail.push(subst(expr, args, ctx_size));
-                    }
-                } else {
-                    panic!("Substituted type into head position... cannot apply type to arguments");
-                }
+                _ => new_head = *head,
             }
-            result
+            new_tail.reserve(tail.len());
+            for expr in tail {
+                new_tail.push(subst(expr, base_ctx_size,
+                                    args, arg_ctx_size));
+            }
+            Expr::Alg { head: new_head, tail: new_tail }
         },
     }
 }
