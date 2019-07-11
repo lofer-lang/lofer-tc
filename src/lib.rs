@@ -51,21 +51,11 @@ enum Ident {
     Local(usize),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Expr {
     Type,
     Arrow(Vec<Expr>),
     Alg { head: Ident, tail: Vec<Expr> },
-}
-
-impl Expr {
-    fn is_universe(self: &Self) -> bool {
-        if let Expr::Type = self {
-            true
-        } else {
-            false
-        }
-    }
 }
 
 type Context = Vec<Expr>;
@@ -179,19 +169,26 @@ fn type_check_expr(
     ctx: &Context,
     expected: Expr,
 ) {
+    let actual = determine_type(expr, ctx);
+    // @Completeness evaluate actual and expected first?
+    if actual != expected {
+        panic!("Types did not match");
+    }
+}
+
+// figures out the type of an expression,
+// while also checking that function applications are valid
+fn determine_type(
+    expr: &Expr,
+    ctx: &Context,
+) -> Expr {
     match expr {
-        Expr::Type => {
-            if expected.is_universe() {
-                panic!("Expected {{:?}}, got `Type` of type `Type`");
-            }
-        },
+        Expr::Type => Expr::Type,
         Expr::Arrow(ends) => {
             for each in ends {
                 type_check_expr(each, ctx, Expr::Type);
             }
-            if expected.is_universe() {
-                panic!("Expected {{:?}}, got pi type of type `Type`");
-            }
+            Expr::Type
         },
         Expr::Alg{head, tail} => {
             let mut checked = 0;
@@ -202,7 +199,7 @@ fn type_check_expr(
             };
             while checked < tail.len() {
                 match expr_ty {
-                        Expr::Arrow(ends) => {
+                    Expr::Arrow(ends) => {
                         while checked < tail.len() && checked < ends.len() - 1 {
                             // @Memory maybe subst could take &mut param?
                             // @Performance skip this cloning operation if i is 0?
@@ -229,38 +226,8 @@ fn type_check_expr(
                         panic!("Cannot apply type to arguments");
                     },
                 }
-                attempt_unify(&expr_ty, &expected);
             }
-        },
-    }
-}
-
-fn attempt_unify(actual: &Expr, expected: &Expr) {
-    match (actual, expected) {
-        (Expr::Type, Expr::Type) => (),
-        (Expr::Alg { head: head_a, tail: tail_a },
-            Expr::Alg { head: head_e, tail: tail_e }) =>
-        {
-            if tail_a.len() > 0 || tail_e.len() > 0 {
-                unimplemented!();
-            }
-            if head_a != head_e {
-                panic!("Types do not match");
-            }
-        },
-        (Expr::Arrow(ends_a), Expr::Arrow(ends_e)) => {
-            let to_check = std::cmp::min(ends_a.len(), ends_e.len()) - 1;
-            let (params_a, result_a) =
-                split_ctx_output_vec(ends_a.clone(), to_check);
-            let (params_e, result_e) =
-                split_ctx_output_vec(ends_e.clone(), to_check);
-            for (a, e) in params_a.iter().zip(&params_e) {
-                attempt_unify(a, e);
-            }
-            attempt_unify(&result_a, &result_e);
-        },
-        _ => {
-            panic!("Types did not match (note function evaluation is not implemented yet, including in the type unifier)");
+            expr_ty
         },
     }
 }
