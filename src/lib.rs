@@ -12,12 +12,20 @@ lalrpop_mod!(line_parser);
 pub use indent_parser::ProgramParser;
 
 pub fn type_check_all(programs: Vec<ast::Item>) {
+    let mut global_names = Vec::with_capacity(programs.len());
+    let mut globals = Vec::with_capacity(programs.len());
     for item in &programs {
-        type_check_function(item);
+        let (name, ty) = type_check_function(&global_names, &globals, item);
+        global_names.push(name);
+        globals.push(ty);
     }
 }
 
-fn type_check_function(fun: &ast::Item) {
+fn type_check_function(
+    global_names: &Vec<String>,
+    globals: &Vec<Expr>,
+    fun: &ast::Item,
+) -> (String, Expr) {
     for _ in &fun.associated {
         unimplemented!();
     }
@@ -37,17 +45,28 @@ fn type_check_function(fun: &ast::Item) {
         );
     }
     let var_names = &fun.definition.vars;
-    let annotation = convert_expr(&mut Default::default(), annotation.typ.clone());
-    let (bindings, result) = split_ctx_output(annotation, fun.definition.vars.len());
-    let mut ctx = NameChain::with_names(var_names.clone());
-    let body = convert_expr(&mut ctx, fun.definition.body.clone());
-    type_check_expr(&body, &bindings, result);
+    let annotation = convert_expr(
+        global_names,
+        &Default::default(),
+        annotation.typ.clone()
+    );
+    let (bindings, result) =
+        split_ctx_output(annotation.clone(), fun.definition.vars.len());
+    let ctx = NameChain::with_names(var_names.clone());
+    let body = convert_expr(
+        global_names,
+        &ctx,
+        fun.definition.body.clone()
+    );
+
+    type_check_expr(globals, &bindings, &body, &result);
+    (fun.definition.fname.clone(), annotation)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ident {
     //Postulate(usize),
-    //Global(usize),
+    Global(usize),
     Local(usize),
 }
 
@@ -85,12 +104,8 @@ impl<'a> NameChain<'a> {
     fn get_index(self: &Self, name: &str) -> Option<usize> {
         let mut curr = self;
         loop {
-            let mut result = curr.this.len();
-            while result > 0 {
-                result -= 1;
-                if curr.this[result] == name {
-                    return Some(result + curr.prev_size);
-                }
+            if let Some(result) = get_index(&curr.this, name) {
+                return Some(result + curr.prev_size);
             }
             if let Some(prev) = &curr.prev {
                 curr = prev;
@@ -101,25 +116,40 @@ impl<'a> NameChain<'a> {
     }
 }
 
-fn convert_expr(ctx: &NameChain, expr: ast::Expr)
-    -> Expr
-{
+fn get_index(names: &Vec<String>, name: &str) -> Option<usize> {
+    let mut result = names.len();
+    while result > 0 {
+        result -= 1;
+        if names[result] == name {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn convert_expr(
+    globals: &Vec<String>,
+    locals: &NameChain,
+    expr: ast::Expr,
+) -> Expr {
     match expr {
         ast::Expr::Arrow(ast::ArrowExpr { params, output }) => {
             let mut out = Vec::new();
-            let mut ctx = ctx.push();
+            let mut locals = locals.push();
             for (name, ty) in params {
-                ctx.this.push(name.unwrap_or("_".into()));
-                out.push(convert_expr(&ctx, ty));
+                locals.this.push(name.unwrap_or("_".into()));
+                out.push(convert_expr(globals, &locals, ty));
             }
             // TODO detect arrow to arrow and merge
-            out.push(convert_expr(&ctx, *output));
+            out.push(convert_expr(globals, &locals, *output));
             Expr::Arrow(out)
         },
         ast::Expr::Alg(ast::AlgExpr { head, tail }) => {
             let head = {
-                if let Some(id) = ctx.get_index(&head) {
+                if let Some(id) = locals.get_index(&head) {
                     Ident::Local(id)
+                } else if let Some(id) = get_index(globals, &head) {
+                    Ident::Global(id)
                 } else if head == "Type" {
                     if tail.len() > 0 {
                         panic!("cannot apply term `Type` of type `Type` to arguments");
@@ -132,7 +162,7 @@ fn convert_expr(ctx: &NameChain, expr: ast::Expr)
             };
             let tail = tail
                 .into_iter()
-                .map(|ex| convert_expr(ctx, ex))
+                .map(|ex| convert_expr(globals, locals, ex))
                 .collect();
             // TODO test whether function needs to be evaluated
             Expr::Alg { head, tail }
@@ -165,13 +195,14 @@ fn split_ctx_output(expr: Expr, n: usize) -> (Context, Expr) {
 }
 
 fn type_check_expr(
+    globals: &Vec<Expr>,
+    locals: &Context,
     expr: &Expr,
-    ctx: &Context,
-    expected: Expr,
+    expected: &Expr,
 ) {
-    let actual = determine_type(expr, ctx);
+    let actual = determine_type(globals, locals, expr);
     // @Completeness evaluate actual and expected first?
-    if actual != expected {
+    if actual != *expected {
         panic!("Types did not match");
     }
 }
@@ -179,23 +210,23 @@ fn type_check_expr(
 // figures out the type of an expression,
 // while also checking that function applications are valid
 fn determine_type(
+    globals: &Vec<Expr>,
+    locals: &Context,
     expr: &Expr,
-    ctx: &Context,
 ) -> Expr {
     match expr {
         Expr::Type => Expr::Type,
         Expr::Arrow(ends) => {
             for each in ends {
-                type_check_expr(each, ctx, Expr::Type);
+                type_check_expr(globals, locals, each, &Expr::Type);
             }
             Expr::Type
         },
         Expr::Alg{head, tail} => {
             let mut checked = 0;
             let mut expr_ty = match *head {
-                Ident::Local(i) => {
-                    ctx[i].clone()
-                },
+                Ident::Local(i) => locals[i].clone(),
+                Ident::Global(i) => globals[i].clone(),
             };
             while checked < tail.len() {
                 match expr_ty {
@@ -206,9 +237,14 @@ fn determine_type(
                             let param_ty = subst(
                                 &ends[checked],
                                 &tail[0..checked],
-                                ctx.len()
+                                locals.len()
                             );
-                            type_check_expr(&tail[checked], ctx, param_ty);
+                            type_check_expr(
+                                globals,
+                                locals,
+                                &tail[checked],
+                                &param_ty,
+                            );
                             checked += 1;
                         }
                         if checked < ends.len() - 1 {
@@ -216,9 +252,13 @@ fn determine_type(
                         } else { // checked == ends.len() - 1
                             expr_ty = {ends}.pop().unwrap();
                         }
-                        expr_ty = subst(&expr_ty, &tail[0..checked], ctx.len());
+                        expr_ty = subst(&expr_ty, &tail[0..checked], locals.len());
                     },
                     Expr::Alg { head, tail } => {
+                        match head {
+                            Ident::Local(i) => println!("Local {}", i),
+                            Ident::Global(i) => println!("Global {}", i),
+                        }
                         // attempt to reduce and if it can't be reduced complain
                         unimplemented!();
                     },
@@ -232,6 +272,14 @@ fn determine_type(
     }
 }
 
+// s A B C f g x = f x (g x)
+// should type check but we need to think carefully
+// about how we handle local variables
+// e.g. the x in `C: (x: A) -> B x -> Type` will have id 2 (one more than B)
+// but then C itself gets id 2...
+// additionally the x in `f: (x: A) -> (y: B x) -> C x y` will have id 3
+// but we probably try to substitute into id n + 0 = 5
+// finally globals will have their own context entirely
 fn subst(expr: &Expr, args: &[Expr], ctx_size: usize) -> Expr {
     match expr {
         Expr::Type => Expr::Type,
@@ -259,6 +307,10 @@ fn subst(expr: &Expr, args: &[Expr], ctx_size: usize) -> Expr {
                             tail: Vec::with_capacity(tail.len()),
                         }
                     }
+                },
+                Ident::Global(_) => Expr::Alg {
+                    head: *head,
+                    tail: Vec::with_capacity(tail.len()),
                 },
             };
             if tail.len() > 0 {

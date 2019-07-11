@@ -8,7 +8,13 @@ const _ _ x _ = x
 leak: (A: Type) -> (B: Type) -> A -> B -> B
 leak _ _ _ x = x
 
+discard: (A: Type) -> (B: Type) -> A -> B -> B
+discard _ B _ = id B
+
 compose: (A: Type) -> (B: Type) -> (C: Type) -> (B -> C) -> (A -> B) -> A -> C
 compose _ _ _ f g x = f (g x)
 
+s: (A: Type) -> (B: A -> Type) -> (C: (x: A) -> B x -> Type) ->\
+  ((x: A) -> (y: B x) -> C x y) -> (g: (x: A) -> B x) -> (x: A) -> A
+s _ _ _ f g x = f x (g x)
 
