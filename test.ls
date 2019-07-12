@@ -18,3 +18,9 @@ s: (A: Type) -> (B: A -> Type) -> (C: (x: A) -> B x -> Type) ->\
   ((x: A) -> (y: B x) -> C x y) -> (g: (x: A) -> B x) -> (x: A) -> C x (g x)
 s _ _ _ f g x = f x (g x)
 
+shadowBug: (A: Type) -> (C: Type -> Type) -> C (A -> A) -> A -> C (A -> A)
+shadowBug A C x _ = x
+
+Pi: (A: Type) -> (B: A -> Type) -> Type
+Pi A B = (x: A) -> B x
+

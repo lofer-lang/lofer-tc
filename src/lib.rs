@@ -138,6 +138,7 @@ fn convert_expr(
     match expr {
         ast::Expr::Arrow(ast::ArrowExpr { params, output }) => {
             let mut ends = Vec::new();
+            let unshadowed = locals.size();
             let mut locals = locals.push();
             for (name, ty) in params {
                 ends.push(convert_expr(globals, &locals, ty));
@@ -145,7 +146,7 @@ fn convert_expr(
             }
             // TODO detect arrow to arrow and merge
             ends.push(convert_expr(globals, &locals, *output));
-            Expr::Arrow { unshadowed: locals.size(), ends }
+            Expr::Arrow { unshadowed, ends }
         },
         ast::Expr::Alg(ast::AlgExpr { head, tail }) => {
             let head = {
@@ -203,8 +204,12 @@ fn type_check_expr(
     expr: &Expr,
     expected: &Expr,
 ) {
-    let actual = determine_type(globals, locals, expr);
-    // @Completeness evaluate actual and expected first?
+    let actual_raw = determine_type(globals, locals, expr);
+    // @Completeness evaluate actual and expected (BEFORE shadow cleanup)
+    // magic function call to clean up all the arrow types in a single pass
+    // @Robustness if subst changes it might not be clear what behaviour
+    // we are relying on
+    let actual = subst(&actual_raw, locals.len(), &[], locals.len());
     if actual != *expected {
         panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
@@ -279,6 +284,10 @@ fn determine_type(
 // takes an expression M valid in G1, (a + m + e variables)
 // and a set of arguments X1..Xm valid in G2 (n variables) where a <= n
 // then generates an expression M[x(a+i) <- Xi, x(a+m+i) <- x(n+i)]
+// note also that the current implementation
+// will clean up the `unshadowed` field on arrow expressions,
+// which we currently use for a simple efficient canonicalization
+// of our expressions after many actual substitutions.
 fn subst(
     base: &Expr, base_ctx_size: usize,
     args: &[Expr], arg_ctx_size: usize,
