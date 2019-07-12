@@ -312,6 +312,31 @@ fn determine_type(
     }
 }
 
+struct Item {
+    ty: Expr,
+    param_num: usize,
+    def: Expr,
+}
+
+fn eval(globals: &Vec<Item>, expr: &Expr) -> Expr {
+    match expr {
+        Expr::Type => Expr::Type,
+        &Expr::Arrow { unshadowed, ref ends } => {
+            let ends = ends
+                .iter()
+                .map(|ex| eval(globals, ex))
+                .collect();
+            // @Completeness merge arrows here
+            // but requires flattening shadows first...
+            // maybe we should flatten before doing substitutions
+            Expr::Arrow { unshadowed, ends }
+        },
+        Expr::Alg { head, tail } => {
+            unimplemented!();
+        },
+    }
+}
+
 // takes an expression M valid in G1, (a + m + e variables)
 // and a set of arguments X1..Xm valid in G2 (n variables) where a <= n
 // then generates an expression M[x(a+i) <- Xi, x(a+m+i) <- x(n+i)]
@@ -320,25 +345,24 @@ fn determine_type(
 // which we currently use for a simple efficient canonicalization
 // of our expressions after many actual substitutions.
 fn subst(
-    base: &Expr, base_ctx_size: usize,
+    base: &Expr, base_ctx_size: usize, // base = a... arg = n... confusing!
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
     match base {
         Expr::Type => Expr::Type,
         &Expr::Arrow { unshadowed, ref ends } => {
             // what on earth am I doing here
-            let new_args = {
-                if unshadowed <= base_ctx_size {
-                    // ignore arguments... does subst do anything?
-                    0
-                } else if unshadowed <= base_ctx_size + args.len() {
-                    // substitute some arguments
-                    unshadowed - base_ctx_size
-                } else {
-                    // substitute all arguments and add some 
-                    args.len()
-                }
-            };
+            let mut new_args = args.len();
+            let mut new_unsh = arg_ctx_size;
+            if unshadowed <= base_ctx_size {
+                // ignore arguments
+                new_args = 0;
+            } else if unshadowed <= base_ctx_size + args.len() {
+                // substitute some arguments
+                new_args = unshadowed - base_ctx_size;
+            } else {
+                new_unsh += unshadowed - (base_ctx_size + args.len());
+            }
             let mut new_ends = Vec::with_capacity(ends.len());
             for end in ends.iter() {
                 // I love non-relative indexing
@@ -349,7 +373,7 @@ fn subst(
                 new_ends.push(subst(end, base_ctx_size,
                                     &args[0..new_args], arg_ctx_size));
             }
-            Expr::Arrow { unshadowed: arg_ctx_size, ends: new_ends }
+            Expr::Arrow { unshadowed: new_unsh, ends: new_ends }
         },
         Expr::Alg { head, tail } => {
             let new_head;
