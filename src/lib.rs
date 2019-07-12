@@ -53,14 +53,15 @@ fn type_check_function(
     );
     let (bindings, result) =
         split_ctx_output(annotation.clone(), fun.definition.vars.len());
-    let ctx = NameChain::with_names(var_names.clone());
+    let ctx = Context::new(&var_names);
     let body = convert_expr(
         global_names,
         &ctx,
         fun.definition.body.clone()
     );
 
-    type_check_expr(globals, &bindings, &body, &result);
+    let ctx = Context::new(&bindings);
+    type_check_expr(globals, &ctx, &body, &result);
     (fun.definition.fname.clone(), annotation)
 }
 
@@ -80,31 +81,39 @@ enum Expr {
     Alg { head: Ident, tail: Vec<Expr> },
 }
 
-type Context = Vec<Expr>;
-
 #[derive(Default)]
-struct NameChain<'a> {
+struct Context<'a, T> {
     prev_size: usize,
-    prev: Option<&'a NameChain<'a>>,
-    this: Vec<String>,
+    prev: Option<&'a Context<'a, T>>,
+    this: &'a [T],
 }
 
-impl<'a> NameChain<'a> {
-    fn with_names(this: Vec<String>) -> Self {
-        NameChain { this, ..Default::default() }
+impl<'a, T> Context<'a, T> {
+    fn new(this: &'a [T]) -> Self {
+        Context { this, prev_size: 0, prev: None }
     }
-    fn push(self: &'a Self) -> Self {
-        NameChain {
-            prev_size: self.size(),
+    fn push(self: &'a Self, next: &'a [T]) -> Self {
+        // this doesn't actually shadow anything because of the size we use
+        self.push_shadowed(next, self.size())
+    }
+    // shadows indeces, cannot be used with shadowed names
+    // (maybe I should stop calling one of these shadowing...)
+    fn push_shadowed(self: &'a Self, next: &'a [T], unshadowed: usize) -> Self {
+        Context {
+            prev_size: unshadowed,
             prev: Some(self),
-            this: Vec::new(),
+            this: next,
         }
     }
     fn size(self: &Self) -> usize {
         self.prev_size + self.this.len()
     }
 
-    fn get_index(self: &Self, name: &str) -> Option<usize> {
+    // NOT valid on expressions with shadowed indeces
+    // this is so that we can efficiently implement shadowed _parameter names_
+    fn index_from_value(self: &Self, name: &T) -> Option<usize>
+        where T: PartialEq,
+    {
         let mut curr = self;
         loop {
             if let Some(result) = get_index(&curr.this, name) {
@@ -117,13 +126,23 @@ impl<'a> NameChain<'a> {
             }
         }
     }
+    fn value_from_index(self: &'a Self, index: usize) -> &'a T {
+        let mut curr = self;
+        loop {
+            if index < curr.prev_size {
+                curr = curr.prev.expect("Nonzero prev_size but no prev??");
+            } else {
+                return &curr.this[index - curr.prev_size];
+            }
+        }
+    }
 }
 
-fn get_index(names: &Vec<String>, name: &str) -> Option<usize> {
+fn get_index<T: PartialEq>(names: &[T], name: &T) -> Option<usize> {
     let mut result = names.len();
     while result > 0 {
         result -= 1;
-        if names[result] == name {
+        if names[result] == *name {
             return Some(result);
         }
     }
@@ -132,25 +151,29 @@ fn get_index(names: &Vec<String>, name: &str) -> Option<usize> {
 
 fn convert_expr(
     globals: &Vec<String>,
-    locals: &NameChain,
+    locals: &Context<String>,
     expr: ast::Expr,
 ) -> Expr {
     match expr {
         ast::Expr::Arrow(ast::ArrowExpr { params, output }) => {
             let mut ends = Vec::new();
             let unshadowed = locals.size();
-            let mut locals = locals.push();
+            let mut new_locals = Vec::new();
             for (name, ty) in params {
-                ends.push(convert_expr(globals, &locals, ty));
-                locals.this.push(name.unwrap_or("_".into()));
+                ends.push(
+                    convert_expr(globals, &locals.push(&new_locals), ty)
+                );
+                new_locals.push(name.unwrap_or_else(|| "_".into()));
             }
             // TODO detect arrow to arrow and merge
-            ends.push(convert_expr(globals, &locals, *output));
+            ends.push(
+                convert_expr(globals, &locals.push(&new_locals), *output)
+            );
             Expr::Arrow { unshadowed, ends }
         },
         ast::Expr::Alg(ast::AlgExpr { head, tail }) => {
             let head = {
-                if let Some(id) = locals.get_index(&head) {
+                if let Some(id) = locals.index_from_value(&head) {
                     Ident::Local(id)
                 } else if let Some(id) = get_index(globals, &head) {
                     Ident::Global(id)
@@ -174,7 +197,7 @@ fn convert_expr(
     }
 }
 
-fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Context, Expr) {
+fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Vec<Expr>, Expr) {
     if ctx.len() > n + 1 {
         let terms = ctx.drain(n..).collect();
         (ctx, Expr::Arrow { unshadowed: n, ends: terms })
@@ -186,7 +209,7 @@ fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Context, Expr) {
     }
 }
 
-fn split_ctx_output(expr: Expr, n: usize) -> (Context, Expr) {
+fn split_ctx_output(expr: Expr, n: usize) -> (Vec<Expr>, Expr) {
     if let Expr::Arrow { ends, .. } = expr {
         split_ctx_output_vec(ends, n)
     } else {
@@ -200,7 +223,7 @@ fn split_ctx_output(expr: Expr, n: usize) -> (Context, Expr) {
 
 fn type_check_expr(
     globals: &Vec<Expr>,
-    locals: &Context,
+    locals: &Context<Expr>,
     expr: &Expr,
     expected: &Expr,
 ) {
@@ -209,7 +232,7 @@ fn type_check_expr(
     // magic function call to clean up all the arrow types in a single pass
     // @Robustness if subst changes it might not be clear what behaviour
     // we are relying on
-    let actual = subst(&actual_raw, locals.len(), &[], locals.len());
+    let actual = subst(&actual_raw, locals.size(), &[], locals.size());
     if actual != *expected {
         panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
@@ -219,21 +242,29 @@ fn type_check_expr(
 // while also checking that function applications are valid
 fn determine_type(
     globals: &Vec<Expr>,
-    locals: &Context,
+    locals: &Context<Expr>,
     expr: &Expr,
 ) -> Expr {
     match expr {
         Expr::Type => Expr::Type,
         Expr::Arrow { ends, .. } => {
+            // @Performance @Memory maybe Context<&Expr>??
+            let mut new_locals = Vec::new();
             for each in ends {
-                type_check_expr(globals, locals, each, &Expr::Type);
+                type_check_expr(
+                    globals,
+                    &locals.push(&new_locals),
+                    each,
+                    &Expr::Type,
+                );
+                new_locals.push(each.clone());
             }
             Expr::Type
         },
         Expr::Alg{head, tail} => {
             let mut checked = 0;
             let (mut expr_ty, expr_ctx_size) = match *head {
-                Ident::Local(i) => (locals[i].clone(), i),
+                Ident::Local(i) => (locals.value_from_index(i).clone(), i),
                 Ident::Global(i) => (globals[i].clone(), 0),
             };
             while checked < tail.len() {
@@ -244,7 +275,7 @@ fn determine_type(
                             // @Performance skip this cloning operation if i is 0?
                             let param_ty = subst(
                                 &ends[checked], expr_ctx_size,
-                                &tail[0..checked], locals.len(),
+                                &tail[0..checked], locals.size(),
                             );
                             type_check_expr(
                                 globals,
@@ -264,7 +295,7 @@ fn determine_type(
                         }
                         expr_ty = subst(
                             &expr_ty, expr_ctx_size,
-                            &tail[0..checked], locals.len(),
+                            &tail[0..checked], locals.size(),
                         );
                     },
                     Expr::Alg { head, tail } => {
