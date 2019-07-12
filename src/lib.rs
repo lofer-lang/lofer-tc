@@ -318,22 +318,55 @@ struct Item {
     def: Expr,
 }
 
-fn eval(globals: &Vec<Item>, expr: &Expr) -> Expr {
-    match expr {
-        Expr::Type => Expr::Type,
-        &Expr::Arrow { unshadowed, ref ends } => {
-            let ends = ends
-                .iter()
-                .map(|ex| eval(globals, ex))
-                .collect();
-            // @Completeness merge arrows here
-            // but requires flattening shadows first...
-            // maybe we should flatten before doing substitutions
-            Expr::Arrow { unshadowed, ends }
-        },
-        Expr::Alg { head, tail } => {
-            unimplemented!();
-        },
+fn eval(globals: &Vec<Item>, mut expr: Expr) -> Expr {
+    let mut extra_args = Vec::new();
+    loop {
+        match expr {
+            Expr::Type => {
+                if extra_args.len() > 0 {
+                    panic!(());
+                }
+                return Expr::Type;
+            },
+            Expr::Arrow { unshadowed, ends } => {
+                if extra_args.len() > 0 {
+                    panic!(());
+                }
+                let ends = ends
+                    .into_iter()
+                    .map(|ex| eval(globals, ex))
+                    .collect();
+                // @Completeness merge arrows here
+                // but requires flattening shadows first...
+                // maybe we should flatten before doing substitutions
+                return Expr::Arrow { unshadowed, ends };
+            },
+            Expr::Alg { mut head, tail } => {
+                let mut args: Vec<_> = tail
+                    .into_iter()
+                    .map(|ex| eval(globals, ex))
+                    .collect();
+                args.append(&mut extra_args);
+                let mut repeat = false;
+                if let Ident::Global(i) = head {
+                    let param_num = globals[i].param_num;
+                    if args.len() >= param_num {
+                        repeat = true;
+                        // @Robustness @Correctness is this right? arrows are fine?
+                        expr = subst(
+                            &globals[i].def, 0,
+                            &args[0..param_num], 0,
+                        );
+                        args.drain(0..param_num);
+                        // @Performance swap to reduce alloc?
+                        extra_args = args;
+                    }
+                }
+                if !repeat {
+                    return Expr::Alg { head, tail: args };
+                }
+            },
+        }
     }
 }
 
