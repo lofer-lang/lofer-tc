@@ -34,7 +34,7 @@ Id A x y = (C: A -> A -> Type) -> (refl: (x': A) -> C x' x') -> C x y
 refl: (A: Type) -> (x: A) -> Id A x x
 refl A x C refl' = refl' x
 
-idEval: (A: Type) -> (x: A) -> Id A x (id x)
+idEval: (A: Type) -> (x: A) -> Id A x (id A x)
 idEval = refl
 
 Bool: Type

@@ -53,19 +53,24 @@ fn type_check_function(
     }
     let var_names = &fun.definition.vars;
     let param_num = var_names.len();
-    let ty = convert_expr(
+    // convert annotation
+    let ty_raw = convert_expr(
         global_names,
         &Default::default(),
         annotation.typ.clone()
     );
+    let ty = normalise(globals, &Context::new(&[]), ty_raw);
+    // pull param types
     let (bindings, result) =
         split_ctx_output(ty.clone(), param_num);
+    // convert definition
     let def = convert_expr(
         global_names,
         &Context::new(&var_names),
         fun.definition.body.clone(),
     );
 
+    // check definition has the right type
     type_check_expr(globals, &Context::new(&bindings), &def, result);
     (fun.definition.fname.clone(), Item { ty, param_num, def })
 }
@@ -226,21 +231,27 @@ fn split_ctx_output(expr: Expr, n: usize) -> (Vec<Expr>, Expr) {
     }
 }
 
+fn normalise(
+    globals: &Vec<Item>,
+    locals: &Context<Expr>,
+    raw: Expr,
+) -> Expr {
+    let expanded = eval(globals, raw);
+    // magic function call to clean up all the arrow types in a single pass
+    // @Robustness if subst changes it might not be clear what behaviour
+    // we are relying on
+    subst(&expanded, locals.size(), &[], locals.size())
+}
+
 fn type_check_expr(
     globals: &Vec<Item>,
     locals: &Context<Expr>,
     expr: &Expr,
     expected: Expr,
 ) {
-    let actual = determine_type(globals, locals, expr);
+    let actual_raw = determine_type(globals, locals, expr);
 
-    let actual = eval(globals, actual);
-    // @Performance pre-evaluate these before storing in globals?
-    let expected = eval(globals, expected);
-    // magic function call to clean up all the arrow types in a single pass
-    // @Robustness if subst changes it might not be clear what behaviour
-    // we are relying on
-    let actual = subst(&actual, locals.size(), &[], locals.size());
+    let actual = normalise(globals, locals, actual_raw);
     if actual != expected {
         panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
@@ -398,15 +409,32 @@ fn subst(
             } else {
                 new_unsh += unshadowed - (base_ctx_size + args.len());
             }
-            let mut new_ends = Vec::with_capacity(ends.len());
-            for end in ends.iter() {
+            let mut new_ends = Vec::new();
+            for end in ends {
                 // I love non-relative indexing
                 // the extra variables generated
                 // by iterating through these parameters
                 // are handled by the third branch
                 // in the Local(i) code below
+                //
+                // problems when normalising an unsh
+                // that ignores a surrounding arrow variable?
+                // i.e. we need to keep track of unsh explicitcly
+                // to work out how many variables are really available...
+                // this is the kind of annoying detail I'm trying to avoid...
+                // might just deepen at this point
                 new_ends.push(subst(end, base_ctx_size,
                                     &args[0..new_args], arg_ctx_size));
+            }
+            while let Expr::Arrow { .. } = new_ends.last().unwrap() {
+                if let Expr::Arrow { ends, .. } = new_ends.pop().unwrap() {
+                    for end in ends {
+                        new_ends.push(subst(&end, base_ctx_size,
+                                            &args[0..new_args], arg_ctx_size));
+                    }
+                } else {
+                    unreachable!();
+                }
             }
             Expr::Arrow { unshadowed: new_unsh, ends: new_ends }
         },
