@@ -46,3 +46,11 @@ true A x y = x
 false: Bool
 false A x y = y
 
+true': Bool
+true' A = const A A
+
+false': Bool
+false' A = const (A -> A) A (id A)
+
+
+
