@@ -22,11 +22,17 @@ pub fn type_check_all(programs: Vec<ast::Item>) {
     }
 }
 
+struct Item {
+    ty: Expr,
+    param_num: usize,
+    def: Expr,
+}
+
 fn type_check_function(
     global_names: &Vec<String>,
-    globals: &Vec<Expr>,
+    globals: &Vec<Item>,
     fun: &ast::Item,
-) -> (String, Expr) {
+) -> (String, Item) {
     for _ in &fun.associated {
         unimplemented!();
     }
@@ -46,23 +52,22 @@ fn type_check_function(
         );
     }
     let var_names = &fun.definition.vars;
-    let annotation = convert_expr(
+    let param_num = var_names.len();
+    let ty = convert_expr(
         global_names,
         &Default::default(),
         annotation.typ.clone()
     );
     let (bindings, result) =
-        split_ctx_output(annotation.clone(), fun.definition.vars.len());
-    let ctx = Context::new(&var_names);
-    let body = convert_expr(
+        split_ctx_output(ty.clone(), param_num);
+    let def = convert_expr(
         global_names,
-        &ctx,
-        fun.definition.body.clone()
+        &Context::new(&var_names),
+        fun.definition.body.clone(),
     );
 
-    let ctx = Context::new(&bindings);
-    type_check_expr(globals, &ctx, &body, &result);
-    (fun.definition.fname.clone(), annotation)
+    type_check_expr(globals, &Context::new(&bindings), &def, result);
+    (fun.definition.fname.clone(), Item { ty, param_num, def })
 }
 
 // @Completeness need to manually implement our own comparison (instead of PartialEq)
@@ -222,18 +227,21 @@ fn split_ctx_output(expr: Expr, n: usize) -> (Vec<Expr>, Expr) {
 }
 
 fn type_check_expr(
-    globals: &Vec<Expr>,
+    globals: &Vec<Item>,
     locals: &Context<Expr>,
     expr: &Expr,
-    expected: &Expr,
+    expected: Expr,
 ) {
-    let actual_raw = determine_type(globals, locals, expr);
-    // @Completeness evaluate actual and expected (BEFORE shadow cleanup)
+    let actual = determine_type(globals, locals, expr);
+
+    let actual = eval(globals, actual);
+    // @Performance pre-evaluate these before storing in globals?
+    let expected = eval(globals, expected);
     // magic function call to clean up all the arrow types in a single pass
     // @Robustness if subst changes it might not be clear what behaviour
     // we are relying on
-    let actual = subst(&actual_raw, locals.size(), &[], locals.size());
-    if actual != *expected {
+    let actual = subst(&actual, locals.size(), &[], locals.size());
+    if actual != expected {
         panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
 }
@@ -241,7 +249,7 @@ fn type_check_expr(
 // figures out the type of an expression,
 // while also checking that function applications are valid
 fn determine_type(
-    globals: &Vec<Expr>,
+    globals: &Vec<Item>,
     locals: &Context<Expr>,
     expr: &Expr,
 ) -> Expr {
@@ -255,7 +263,7 @@ fn determine_type(
                     globals,
                     &locals.push(&new_locals),
                     each,
-                    &Expr::Type,
+                    Expr::Type,
                 );
                 new_locals.push(each.clone());
             }
@@ -265,7 +273,7 @@ fn determine_type(
             let mut checked = 0;
             let (mut expr_ty, expr_ctx_size) = match *head {
                 Ident::Local(i) => (locals.value_from_index(i).clone(), i),
-                Ident::Global(i) => (globals[i].clone(), 0),
+                Ident::Global(i) => (globals[i].ty.clone(), 0),
             };
             while checked < tail.len() {
                 match expr_ty {
@@ -281,7 +289,7 @@ fn determine_type(
                                 globals,
                                 locals,
                                 &tail[checked],
-                                &param_ty,
+                                param_ty,
                             );
                             checked += 1;
                         }
@@ -312,12 +320,6 @@ fn determine_type(
     }
 }
 
-struct Item {
-    ty: Expr,
-    param_num: usize,
-    def: Expr,
-}
-
 fn eval(globals: &Vec<Item>, mut expr: Expr) -> Expr {
     let mut extra_args = Vec::new();
     loop {
@@ -341,30 +343,30 @@ fn eval(globals: &Vec<Item>, mut expr: Expr) -> Expr {
                 // maybe we should flatten before doing substitutions
                 return Expr::Arrow { unshadowed, ends };
             },
-            Expr::Alg { mut head, tail } => {
+            Expr::Alg { head, tail } => {
                 let mut args: Vec<_> = tail
                     .into_iter()
                     .map(|ex| eval(globals, ex))
                     .collect();
                 args.append(&mut extra_args);
-                let mut repeat = false;
+                let mut repeat = None;
                 if let Ident::Global(i) = head {
                     let param_num = globals[i].param_num;
                     if args.len() >= param_num {
-                        repeat = true;
                         // @Robustness @Correctness is this right? arrows are fine?
-                        expr = subst(
+                        repeat = Some(subst(
                             &globals[i].def, 0,
                             &args[0..param_num], 0,
-                        );
+                        ));
                         args.drain(0..param_num);
                         // @Performance swap to reduce alloc?
-                        extra_args = args;
                     }
                 }
-                if !repeat {
-                    return Expr::Alg { head, tail: args };
+                extra_args = args;
+                if repeat.is_none() {
+                    return Expr::Alg { head, tail: extra_args };
                 }
+                expr = repeat.unwrap();
             },
         }
     }

@@ -28,3 +28,21 @@ s': (A: Type) -> (B: A -> Type) -> (C: (x: A) -> B x -> Type) ->\
   ((x: A) -> (y: B x) -> C x y) -> (g: (x: A) -> B x) -> (x: A) -> C x (g x)
 s' = s
 
+Id: (A: Type) -> A -> A -> Type
+Id A x y = (C: A -> A -> Type) -> (refl: (x': A) -> C x' x') -> C x y
+
+refl: (A: Type) -> (x: A) -> Id A x x
+refl A x C refl' = refl' x
+
+idEval: (A: Type) -> (x: A) -> Id A x (id x)
+idEval = refl
+
+Bool: Type
+Bool = (A: Type) -> A -> A -> A
+
+true: Bool
+true A x y = x
+
+false: Bool
+false A x y = y
+
