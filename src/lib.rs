@@ -15,10 +15,10 @@ pub fn type_check_all(programs: Vec<ast::Item>) {
     let mut global_names = Vec::with_capacity(programs.len());
     let mut globals = Vec::with_capacity(programs.len());
     for item in &programs {
-        let (name, ty) = type_check_function(&global_names, &globals, item);
-        println!("Success: {}", name);
+        let (name, item) = type_check_function(&global_names, &globals, item);
+        println!("{}: {}", name, item.ty);
         global_names.push(name);
-        globals.push(ty);
+        globals.push(item);
     }
 }
 
@@ -78,7 +78,7 @@ fn type_check_function(
     (fun.definition.fname.clone(), Item { ty, param_num, def })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Ident {
     //Postulate(usize),
     Type, // Postulate(0)? Postulate(~0)?
@@ -86,7 +86,7 @@ enum Ident {
     Local(usize),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 struct Expr {
     arrow_params: Vec<Expr>,
     head: Ident,
@@ -103,6 +103,39 @@ impl Expr {
     }
     fn is_universe(self: &Self) -> bool {
         *self == Expr::universe()
+    }
+    fn write_grouped(self: &Self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.arrow_params.len() > 0 || self.tail.len() > 0 {
+            write!(f, "({})", self)?;
+        } else {
+            write!(f, "{}", self)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for Expr {
+    fn fmt(self: &Self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for ex in &self.arrow_params {
+            ex.write_grouped(f)?;
+            write!(f, " -> ")?;
+        }
+        match self.head {
+            Ident::Type => {
+                write!(f, "Type")?;
+            },
+            Ident::Local(i) => {
+                write!(f, "x{}", i)?;
+            },
+            Ident::Global(i) => {
+                write!(f, "g{}", i)?;
+            },
+        }
+        for ex in &self.tail {
+            write!(f, " ")?;
+            ex.write_grouped(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -237,7 +270,7 @@ fn type_check_expr(
         // the result expression also needs to be a type,
         // so we are implicitly assigning `expected = universe();`
         if !expected.is_universe() {
-            panic!("Expected {:?}, got Type", expected);
+            panic!("Expected {}, got Type", expected);
         }
     }
     let locals = locals.push(&new_locals);
@@ -257,7 +290,7 @@ fn type_check_expr(
             // @Performance lazy eval? save the full eval for later
             eval(globals, &mut actual_base);
             if actual_base.arrow_params.len() == 0 {
-                panic!("Cannot apply type family to argument(s): {:?}",
+                panic!("Cannot apply type family to argument(s): {}",
                        actual_base);
             }
         }
@@ -286,7 +319,7 @@ fn type_check_expr(
     );
     eval(globals, &mut actual);
     if actual != expected {
-        panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
+        panic!("Types did not match\n\nexpected: {}\n\ngot: {}", expected, actual);
     }
 }
 
