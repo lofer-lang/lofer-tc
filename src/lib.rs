@@ -106,6 +106,21 @@ impl Expr {
     fn is_universe(self: &Self) -> bool {
         *self == Expr::universe()
     }
+
+    fn insert(self: &mut Self, mut other: Self) {
+        if (other.is_universe() || other.arrow_params.len() > 0) &&
+            self.tail.len() > 0
+        {
+            panic!("Substituted arrow expression into head position");
+        }
+        self.arrow_params.append(&mut other.arrow_params);
+        self.head = other.head;
+        // @Performance reverse all tail arrays
+        // specifically to make this faster
+        other.tail.append(&mut self.tail);
+        self.tail = other.tail;
+    }
+
     fn write_grouped(self: &Self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.arrow_params.len() > 0 || self.tail.len() > 0 {
             write!(f, "({})", self)?;
@@ -258,7 +273,6 @@ fn type_check_expr(
 ) {
     let mut new_locals = Vec::new();
     if expr.arrow_params.len() > 0 {
-        // @Performance @Memory maybe Context<&Expr>??
         for each in &expr.arrow_params {
             type_check_expr(
                 globals,
@@ -350,13 +364,10 @@ fn eval(globals: &Vec<Item>, expr: &mut Expr, mut ctx_size: usize) {
             // A -> (B -> x y z) w
             eval_on(globals, &mut result.arrow_params, &mut ctx_size, true);
             eval_on(globals, &mut result.tail, &mut ctx_size, false);
-            expr.arrow_params.append(&mut result.arrow_params);
-            expr.head = result.head;
             // @Performance we are allocating again every time...
             // could just combine these steps or something more tricky
             expr.tail.drain(0..param_num);
-            result.tail.append(&mut expr.tail);
-            expr.tail = result.tail;
+            expr.insert(result);
         } else {
             break;
         }
@@ -372,46 +383,40 @@ fn subst(
     base: &Expr, shared_ctx_size: usize, mut extra_ctx_size: usize,
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
-    let mut arrow_params = Vec::with_capacity(base.arrow_params.len());
+    // just a dumb default... we overwrite everything
+    let mut result = Expr::universe();
+    result.arrow_params = Vec::with_capacity(base.arrow_params.len());
     for ex in &base.arrow_params {
-        arrow_params.push(
+        result.arrow_params.push(
              subst(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
         );
         extra_ctx_size += 1;
     }
-    let mut tail = Vec::with_capacity(base.tail.len());
+    result.tail = Vec::with_capacity(base.tail.len());
     for ex in &base.tail {
-        tail.push(
+        result.tail.push(
              subst(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
         );
     }
-    let head;
     match base.head {
         Ident::Local(i) => {
             if i < shared_ctx_size {
-                head =  Ident::Local(i);
+                result.head =  Ident::Local(i);
             } else if i - shared_ctx_size < args.len() {
-                // @Correctness @Completeness deepen this first
-                let mut result = deepen(
+                let arg = deepen(
                     &args[i - shared_ctx_size],
                     arg_ctx_size,
                     extra_ctx_size,
                 );
-                arrow_params.append(&mut result.arrow_params);
-                head = result.head;
-                // @Performance combine these like in eval
-                // does Vec::prepend exist?
-                // actually we should probably just reverse argument lists
-                result.tail.append(&mut tail);
-                tail = result.tail;
+                result.insert(arg);
             } else {
                 let e = i - (shared_ctx_size + args.len());
-                head = Ident::Local(arg_ctx_size + e);
+                result.head = Ident::Local(arg_ctx_size + e);
             }
         },
-        _ => head = base.head,
+        _ => result.head = base.head,
     }
-    Expr { arrow_params, head, tail }
+    result
 }
 
 fn deepen(arg: &Expr, arg_ctx_size: usize, extra: usize) -> Expr {
