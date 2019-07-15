@@ -54,15 +54,18 @@ fn type_check_function(
     let var_names = &fun.definition.vars;
     let param_num = var_names.len();
     // convert annotation
-    let ty_raw = convert_expr(
+    let mut ty = convert_expr(
         global_names,
         &Default::default(),
         annotation.typ.clone()
     );
-    let ty = normalise(globals, &Context::new(&[]), ty_raw);
+    eval(globals, &mut ty);
     // pull param types
-    let (bindings, result) =
-        split_ctx_output(ty.clone(), param_num);
+    let mut result = ty.clone();
+    let bindings: Vec<_> = result
+        .arrow_params
+        .drain(0..param_num)
+        .collect();
     // convert definition
     let def = convert_expr(
         global_names,
@@ -75,20 +78,32 @@ fn type_check_function(
     (fun.definition.fname.clone(), Item { ty, param_num, def })
 }
 
-// @Completeness need to manually implement our own comparison (instead of PartialEq)
-// since Arrows with different unshadowed values may be equivalent
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Ident {
     //Postulate(usize),
+    Type, // Postulate(0)? Postulate(~0)?
     Global(usize),
     Local(usize),
 }
 
 #[derive(Clone, PartialEq, Debug)]
-enum Expr {
-    Type,
-    Arrow { unshadowed: usize, ends: Vec<Expr> },
-    Alg { head: Ident, tail: Vec<Expr> },
+struct Expr {
+    arrow_params: Vec<Expr>,
+    head: Ident,
+    tail: Vec<Expr>,
+}
+
+impl Expr {
+    fn universe() -> Self {
+        Expr {
+            arrow_params: Vec::new(),
+            head: Ident::Type,
+            tail: Vec::new(),
+        }
+    }
+    fn is_universe(self: &Self) -> bool {
+        *self == Expr::universe()
+    }
 }
 
 #[derive(Default)]
@@ -162,85 +177,42 @@ fn get_index<T: PartialEq>(names: &[T], name: &T) -> Option<usize> {
 fn convert_expr(
     globals: &Vec<String>,
     locals: &Context<String>,
-    expr: ast::Expr,
+    mut expr: ast::Expr,
 ) -> Expr {
-    match expr {
-        ast::Expr::Arrow(ast::ArrowExpr { params, output }) => {
-            let mut ends = Vec::new();
-            let unshadowed = locals.size();
-            let mut new_locals = Vec::new();
-            for (name, ty) in params {
-                ends.push(
-                    convert_expr(globals, &locals.push(&new_locals), ty)
-                );
-                new_locals.push(name.unwrap_or_else(|| "_".into()));
-            }
-            // TODO detect arrow to arrow and merge
-            ends.push(
-                convert_expr(globals, &locals.push(&new_locals), *output)
+    let mut arrow_params = Vec::new();
+    let mut new_locals = Vec::new();
+    while let ast::Expr::Arrow(ast::ArrowExpr { params, output }) = expr {
+        for (name, ty) in params {
+            arrow_params.push(
+                convert_expr(globals, &locals.push(&new_locals), ty)
             );
-            Expr::Arrow { unshadowed, ends }
-        },
-        ast::Expr::Alg(ast::AlgExpr { head, tail }) => {
-            let head = {
-                if let Some(id) = locals.index_from_value(&head) {
-                    Ident::Local(id)
-                } else if let Some(id) = get_index(globals, &head) {
-                    Ident::Global(id)
-                } else if head == "Type" {
-                    if tail.len() > 0 {
-                        panic!("cannot apply term `Type` of type `Type` to arguments");
-                    } else {
-                        return Expr::Type;
-                    }
-                } else {
-                    panic!("Could not find term for identifier: {}", head);
-                }
-            };
-            let tail = tail
-                .into_iter()
-                .map(|ex| convert_expr(globals, locals, ex))
-                .collect();
-            // TODO test whether function needs to be evaluated
-            Expr::Alg { head, tail }
-        },
-    }
-}
-
-fn split_ctx_output_vec(mut ctx: Vec<Expr>, n: usize) -> (Vec<Expr>, Expr) {
-    if ctx.len() > n + 1 {
-        let terms = ctx.drain(n..).collect();
-        (ctx, Expr::Arrow { unshadowed: n, ends: terms })
-    } else if ctx.len() == n + 1 {
-        let output = ctx.pop().unwrap();
-        (ctx, output)
-    } else { // ctx.len() < n + 1
-        panic!("Too many parameters for given annotation");
-    }
-}
-
-fn split_ctx_output(expr: Expr, n: usize) -> (Vec<Expr>, Expr) {
-    if let Expr::Arrow { ends, .. } = expr {
-        split_ctx_output_vec(ends, n)
-    } else {
-        if n == 0 {
-            (Vec::new(), expr)
-        } else {
-            panic!("Too many parameters for given annotation. (not expecting any)");
+            new_locals.push(name.unwrap_or_else(|| "_".into()));
         }
+        expr = *output;
     }
-}
+    let locals = locals.push(&new_locals);
+    let alg = match expr {
+        ast::Expr::Arrow(_) => unreachable!(),
+        ast::Expr::Alg(alg) => alg,
+    };
 
-fn normalise(
-    globals: &Vec<Item>,
-    locals: &Context<Expr>,
-    raw: Expr,
-) -> Expr {
-    let expanded = eval(globals, raw);
-    // magic function call to clean up all the arrow types in a single pass
-    // @Robustness if subst changes it might not be clear what behaviour
-    // we are relying on
-    subst(&expanded, locals.size(), &[], locals.size())
+    let head = {
+        if let Some(id) = locals.index_from_value(&alg.head) {
+            Ident::Local(id)
+        } else if let Some(id) = get_index(globals, &alg.head) {
+            Ident::Global(id)
+        } else if alg.head == "Type" {
+            Ident::Type
+        } else {
+            panic!("Could not find term for identifier: {}", alg.head);
+        }
+    };
+    let tail = alg
+        .tail
+        .into_iter()
+        .map(|ex| convert_expr(globals, &locals, ex))
+        .collect();
+    Expr { arrow_params, head, tail }
 }
 
 fn type_check_expr(
@@ -249,136 +221,102 @@ fn type_check_expr(
     expr: &Expr,
     expected: Expr,
 ) {
-    let actual_raw = determine_type(globals, locals, expr);
+    if expr.arrow_params.len() > 0 {
+        // @Performance @Memory maybe Context<&Expr>??
+        let mut new_locals = Vec::new();
+        for each in &expr.arrow_params {
+            type_check_expr(
+                globals,
+                &locals.push(&new_locals),
+                each,
+                Expr::universe(),
+            );
+            new_locals.push(each.clone());
+        }
+        // doesn't just check that the arrow expression was meant to be a type
+        // the result expression also needs to be a type,
+        // so we are implicitly assigning `expected = universe();`
+        if !expected.is_universe() {
+            panic!("Expected {:?}, got Type", expected);
+        }
+    }
+    let mut checked = 0;
+    let (mut actual_base, expr_ctx_size) = match expr.head {
+        Ident::Local(i) => (locals.value_from_index(i).clone(), i),
+        Ident::Global(i) => (globals[i].ty.clone(), 0),
+        Ident::Type => {
+            if expr.tail.len() > 0 {
+                panic!("Cannot apply type to arguments");
+            }
+            return;
+        },
+    };
+    while checked < expr.tail.len() {
+        if actual_base.arrow_params.len() == 0 {
+            eval(globals, &mut actual_base);
+            if actual_base.arrow_params.len() == 0 {
+                panic!("Cannot apply type family to argument(s): {:?}",
+                       actual_base);
+            }
+        }
+        // the first parameter of the actual type is
+        // the expected type for the first argument
+        let arg_expected_base = actual_base.arrow_params.remove(0);
 
-    let actual = normalise(globals, locals, actual_raw);
+        // @Memory maybe subst could take &mut param?
+        // @Performance skip this cloning operation if i is 0?
+        let arg_expected = subst(
+            &arg_expected_base, expr_ctx_size,
+            &expr.tail[0..checked], locals.size(),
+        );
+        type_check_expr(
+            globals,
+            locals,
+            &expr.tail[checked],
+            arg_expected,
+        );
+        checked += 1;
+    }
+
+    let mut actual = subst(
+        &actual_base, expr_ctx_size,
+        &expr.tail[0..checked], locals.size(),
+    );
+    eval(globals, &mut actual);
     if actual != expected {
         panic!("Types did not match\n\nexpected: {:?}\n\ngot: {:?}", expected, actual);
     }
 }
 
-// figures out the type of an expression,
-// while also checking that function applications are valid
-fn determine_type(
-    globals: &Vec<Item>,
-    locals: &Context<Expr>,
-    expr: &Expr,
-) -> Expr {
-    match expr {
-        Expr::Type => Expr::Type,
-        Expr::Arrow { ends, .. } => {
-            // @Performance @Memory maybe Context<&Expr>??
-            let mut new_locals = Vec::new();
-            for each in ends {
-                type_check_expr(
-                    globals,
-                    &locals.push(&new_locals),
-                    each,
-                    Expr::Type,
-                );
-                new_locals.push(each.clone());
-            }
-            Expr::Type
-        },
-        Expr::Alg{head, tail} => {
-            let mut checked = 0;
-            let (mut expr_ty, expr_ctx_size) = match *head {
-                Ident::Local(i) => (locals.value_from_index(i).clone(), i),
-                Ident::Global(i) => (globals[i].ty.clone(), 0),
-            };
-            while checked < tail.len() {
-                match expr_ty {
-                    Expr::Arrow { ends, .. } => {
-                        while checked < tail.len() && checked < ends.len() - 1 {
-                            // @Memory maybe subst could take &mut param?
-                            // @Performance skip this cloning operation if i is 0?
-                            let param_ty = subst(
-                                &ends[checked], expr_ctx_size,
-                                &tail[0..checked], locals.size(),
-                            );
-                            type_check_expr(
-                                globals,
-                                locals,
-                                &tail[checked],
-                                param_ty,
-                            );
-                            checked += 1;
-                        }
-                        if checked < ends.len() - 1 {
-                            expr_ty = Expr::Arrow {
-                                unshadowed: expr_ctx_size + checked,
-                                ends: ends[checked..].to_owned()
-                            };
-                        } else { // checked == ends.len() - 1
-                            expr_ty = {ends}.pop().unwrap();
-                        }
-                        expr_ty = subst(
-                            &expr_ty, expr_ctx_size,
-                            &tail[0..checked], locals.size(),
-                        );
-                    },
-                    Expr::Alg { head, tail } => {
-                        // attempt to reduce and if it can't be reduced complain
-                        unimplemented!();
-                    },
-                    Expr::Type => {
-                        panic!("Cannot apply type to arguments");
-                    },
-                }
-            }
-            expr_ty
-        },
+fn eval_on(globals: &Vec<Item>, xs: &mut Vec<Expr>) {
+    for x in xs {
+        eval(globals, x);
     }
 }
 
-fn eval(globals: &Vec<Item>, mut expr: Expr) -> Expr {
-    let mut extra_args = Vec::new();
-    loop {
-        match expr {
-            Expr::Type => {
-                if extra_args.len() > 0 {
-                    panic!(());
-                }
-                return Expr::Type;
-            },
-            Expr::Arrow { unshadowed, ends } => {
-                if extra_args.len() > 0 {
-                    panic!(());
-                }
-                let ends = ends
-                    .into_iter()
-                    .map(|ex| eval(globals, ex))
-                    .collect();
-                // @Completeness merge arrows here
-                // but requires flattening shadows first...
-                // maybe we should flatten before doing substitutions
-                return Expr::Arrow { unshadowed, ends };
-            },
-            Expr::Alg { head, tail } => {
-                let mut args: Vec<_> = tail
-                    .into_iter()
-                    .map(|ex| eval(globals, ex))
-                    .collect();
-                args.append(&mut extra_args);
-                let mut repeat = None;
-                if let Ident::Global(i) = head {
-                    let param_num = globals[i].param_num;
-                    if args.len() >= param_num {
-                        // @Robustness @Correctness is this right? arrows are fine?
-                        repeat = Some(subst(
-                            &globals[i].def, 0,
-                            &args[0..param_num], 0,
-                        ));
-                        args.drain(0..param_num);
-                        // @Performance swap to reduce alloc?
-                    }
-                }
-                extra_args = args;
-                if repeat.is_none() {
-                    return Expr::Alg { head, tail: extra_args };
-                }
-                expr = repeat.unwrap();
-            },
+fn eval(globals: &Vec<Item>, expr: &mut Expr) {
+    eval_on(globals, &mut expr.arrow_params);
+    eval_on(globals, &mut expr.tail);
+
+    while let Ident::Global(i) = expr.head {
+        let param_num = globals[i].param_num;
+        if expr.tail.len() >= param_num {
+            let mut result = subst(
+                &globals[i].def, 0,
+                &expr.tail[0..param_num], 0,
+            );
+            // recurse... often redundant... @Performance? combine with subst?
+            eval_on(globals, &mut result.arrow_params);
+            eval_on(globals, &mut result.tail);
+            expr.arrow_params.append(&mut result.arrow_params);
+            expr.head = result.head;
+            // @Performance we are allocating again every time...
+            // could just combine these steps or something more tricky
+            expr.tail.drain(0..param_num);
+            result.tail.append(&mut expr.tail);
+            expr.tail = result.tail;
+        } else {
+            break;
         }
     }
 }
@@ -386,88 +324,37 @@ fn eval(globals: &Vec<Item>, mut expr: Expr) -> Expr {
 // takes an expression M valid in G1, (a + m + e variables)
 // and a set of arguments X1..Xm valid in G2 (n variables) where a <= n
 // then generates an expression M[x(a+i) <- Xi, x(a+m+i) <- x(n+i)]
-// note also that the current implementation
-// will clean up the `unshadowed` field on arrow expressions,
-// which we currently use for a simple efficient canonicalization
-// of our expressions after many actual substitutions.
 fn subst(
     base: &Expr, base_ctx_size: usize, // base = a... arg = n... confusing!
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
-    match base {
-        Expr::Type => Expr::Type,
-        &Expr::Arrow { unshadowed, ref ends } => {
-            // what on earth am I doing here
-            let mut new_args = args.len();
-            let mut new_unsh = arg_ctx_size;
-            if unshadowed <= base_ctx_size {
-                // ignore arguments
-                new_args = 0;
-            } else if unshadowed <= base_ctx_size + args.len() {
-                // substitute some arguments
-                new_args = unshadowed - base_ctx_size;
+    let subst_on = |xs: &Vec<Expr>| xs
+        .iter()
+        .map(|x| subst(x, base_ctx_size, args, arg_ctx_size))
+        .collect::<Vec<Expr>>();
+    let mut arrow_params = subst_on(&base.arrow_params);
+    let mut tail = subst_on(&base.tail);
+    let head;
+    match base.head {
+        Ident::Local(i) => {
+            if i < base_ctx_size {
+                head =  Ident::Local(i);
+            } else if i - base_ctx_size < args.len() {
+                // @Correctness @Completeness deepen this first
+                let mut result = args[i - base_ctx_size].clone();
+                arrow_params.append(&mut result.arrow_params);
+                head = result.head;
+                // @Performance combine these like in eval
+                // does Vec::prepend exist?
+                // actually we should probably just reverse argument lists
+                result.tail.append(&mut tail);
+                tail = result.tail;
             } else {
-                new_unsh += unshadowed - (base_ctx_size + args.len());
+                let e = i - (base_ctx_size + args.len());
+                head = Ident::Local(arg_ctx_size + e);
             }
-            let mut new_ends = Vec::new();
-            for end in ends {
-                // I love non-relative indexing
-                // the extra variables generated
-                // by iterating through these parameters
-                // are handled by the third branch
-                // in the Local(i) code below
-                //
-                // problems when normalising an unsh
-                // that ignores a surrounding arrow variable?
-                // i.e. we need to keep track of unsh explicitcly
-                // to work out how many variables are really available...
-                // this is the kind of annoying detail I'm trying to avoid...
-                // might just deepen at this point
-                new_ends.push(subst(end, base_ctx_size,
-                                    &args[0..new_args], arg_ctx_size));
-            }
-            while let Expr::Arrow { .. } = new_ends.last().unwrap() {
-                if let Expr::Arrow { ends, .. } = new_ends.pop().unwrap() {
-                    for end in ends {
-                        new_ends.push(subst(&end, base_ctx_size,
-                                            &args[0..new_args], arg_ctx_size));
-                    }
-                } else {
-                    unreachable!();
-                }
-            }
-            Expr::Arrow { unshadowed: new_unsh, ends: new_ends }
         },
-        Expr::Alg { head, tail } => {
-            let new_head;
-            let mut new_tail = Vec::new();
-            match *head {
-                Ident::Local(i) => {
-                    if i < base_ctx_size {
-                        new_head =  Ident::Local(i);
-                    } else if i - base_ctx_size < args.len() {
-                        let result = args[i - base_ctx_size].clone();
-                        if let Expr::Alg { head, tail } = result {
-                            new_head = head;
-                            new_tail = tail;
-                        } else if tail.len() == 0 {
-                            return result;
-                        } else {
-                            panic!("Substituted builtin type into head position... cannot apply type to arguments");
-                        }
-                    } else {
-                        let e = i - (base_ctx_size + args.len());
-                        new_head = Ident::Local(arg_ctx_size + e);
-                    }
-                },
-                _ => new_head = *head,
-            }
-            new_tail.reserve(tail.len());
-            for expr in tail {
-                new_tail.push(subst(expr, base_ctx_size,
-                                    args, arg_ctx_size));
-            }
-            Expr::Alg { head: new_head, tail: new_tail }
-        },
+        _ => head = base.head,
     }
+    Expr { arrow_params, head, tail }
 }
