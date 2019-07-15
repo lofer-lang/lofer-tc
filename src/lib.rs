@@ -20,6 +20,8 @@ pub fn type_check_all(programs: Vec<ast::Item>) {
         global_names.push(name);
         globals.push(item);
     }
+
+    println!("\nSuccessfully type-checked all items!");
 }
 
 struct Item {
@@ -59,7 +61,7 @@ fn type_check_function(
         &Default::default(),
         annotation.typ.clone()
     );
-    eval(globals, &mut ty);
+    eval(globals, &mut ty, 0);
     // pull param types
     let mut result = ty.clone();
     let bindings: Vec<_> = result
@@ -288,7 +290,7 @@ fn type_check_expr(
     while checked < expr.tail.len() {
         if actual_base.arrow_params.len() == 0 {
             // @Performance lazy eval? save the full eval for later
-            eval(globals, &mut actual_base);
+            eval(globals, &mut actual_base, locals.size());
             if actual_base.arrow_params.len() == 0 {
                 panic!("Cannot apply type family to argument(s): {}",
                        actual_base);
@@ -317,32 +319,37 @@ fn type_check_expr(
         &actual_base, expr_ctx_size, 0,
         &expr.tail[0..checked], locals.size(),
     );
-    eval(globals, &mut actual);
+    eval(globals, &mut actual, locals.size());
     if actual != expected {
         panic!("Types did not match\n\nexpected: {}\n\ngot: {}", expected, actual);
     }
 }
 
-fn eval_on(globals: &Vec<Item>, xs: &mut Vec<Expr>) {
+fn eval_on(globals: &Vec<Item>, xs: &mut Vec<Expr>, ctx_size: &mut usize, incr: bool) {
     for x in xs {
-        eval(globals, x);
+        eval(globals, x, *ctx_size);
+        if incr {
+            *ctx_size += 1;
+        }
     }
 }
 
-fn eval(globals: &Vec<Item>, expr: &mut Expr) {
-    eval_on(globals, &mut expr.arrow_params);
-    eval_on(globals, &mut expr.tail);
+fn eval(globals: &Vec<Item>, expr: &mut Expr, mut ctx_size: usize) {
+    eval_on(globals, &mut expr.arrow_params, &mut ctx_size, true);
+    eval_on(globals, &mut expr.tail, &mut ctx_size, false);
 
     while let Ident::Global(i) = expr.head {
         let param_num = globals[i].param_num;
         if expr.tail.len() >= param_num {
             let mut result = subst(
                 &globals[i].def, 0, 0,
-                &expr.tail[0..param_num], 0,
+                &expr.tail[0..param_num], ctx_size,
             );
             // recurse... often redundant... @Performance? combine with subst?
-            eval_on(globals, &mut result.arrow_params);
-            eval_on(globals, &mut result.tail);
+            // type checking should prevent associativity problems
+            // A -> (B -> x y z) w
+            eval_on(globals, &mut result.arrow_params, &mut ctx_size, true);
+            eval_on(globals, &mut result.tail, &mut ctx_size, false);
             expr.arrow_params.append(&mut result.arrow_params);
             expr.head = result.head;
             // @Performance we are allocating again every time...
