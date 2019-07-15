@@ -221,9 +221,9 @@ fn type_check_expr(
     expr: &Expr,
     expected: Expr,
 ) {
+    let mut new_locals = Vec::new();
     if expr.arrow_params.len() > 0 {
         // @Performance @Memory maybe Context<&Expr>??
-        let mut new_locals = Vec::new();
         for each in &expr.arrow_params {
             type_check_expr(
                 globals,
@@ -240,6 +240,7 @@ fn type_check_expr(
             panic!("Expected {:?}, got Type", expected);
         }
     }
+    let locals = locals.push(&new_locals);
     let mut checked = 0;
     let (mut actual_base, expr_ctx_size) = match expr.head {
         Ident::Local(i) => (locals.value_from_index(i).clone(), i),
@@ -253,6 +254,7 @@ fn type_check_expr(
     };
     while checked < expr.tail.len() {
         if actual_base.arrow_params.len() == 0 {
+            // @Performance lazy eval? save the full eval for later
             eval(globals, &mut actual_base);
             if actual_base.arrow_params.len() == 0 {
                 panic!("Cannot apply type family to argument(s): {:?}",
@@ -266,12 +268,12 @@ fn type_check_expr(
         // @Memory maybe subst could take &mut param?
         // @Performance skip this cloning operation if i is 0?
         let arg_expected = subst(
-            &arg_expected_base, expr_ctx_size,
+            &arg_expected_base, expr_ctx_size, 0,
             &expr.tail[0..checked], locals.size(),
         );
         type_check_expr(
             globals,
-            locals,
+            &locals,
             &expr.tail[checked],
             arg_expected,
         );
@@ -279,7 +281,7 @@ fn type_check_expr(
     }
 
     let mut actual = subst(
-        &actual_base, expr_ctx_size,
+        &actual_base, expr_ctx_size, 0,
         &expr.tail[0..checked], locals.size(),
     );
     eval(globals, &mut actual);
@@ -302,7 +304,7 @@ fn eval(globals: &Vec<Item>, expr: &mut Expr) {
         let param_num = globals[i].param_num;
         if expr.tail.len() >= param_num {
             let mut result = subst(
-                &globals[i].def, 0,
+                &globals[i].def, 0, 0,
                 &expr.tail[0..param_num], 0,
             );
             // recurse... often redundant... @Performance? combine with subst?
@@ -321,27 +323,40 @@ fn eval(globals: &Vec<Item>, expr: &mut Expr) {
     }
 }
 
-// takes an expression M valid in G1, (a + m + e variables)
-// and a set of arguments X1..Xm valid in G2 (n variables) where a <= n
-// then generates an expression M[x(a+i) <- Xi, x(a+m+i) <- x(n+i)]
+// takes an expression M valid in G1, (s + m + e variables)
+// and a set of arguments X1..Xm valid in G2 (n variables) where s <= n
+// then generates an expression M[x(s+i) <- Xi, x(s+m+i) <- x(n+i)]
+// but with Xi[x(n+i) <- x(n+e+i)] in each substitution,
+// in cases where arrow expressions are substituted _into_ arrow expressions
 fn subst(
-    base: &Expr, base_ctx_size: usize, // base = a... arg = n... confusing!
+    base: &Expr, shared_ctx_size: usize, mut extra_ctx_size: usize,
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
-    let subst_on = |xs: &Vec<Expr>| xs
-        .iter()
-        .map(|x| subst(x, base_ctx_size, args, arg_ctx_size))
-        .collect::<Vec<Expr>>();
-    let mut arrow_params = subst_on(&base.arrow_params);
-    let mut tail = subst_on(&base.tail);
+    let mut arrow_params = Vec::with_capacity(base.arrow_params.len());
+    for ex in &base.arrow_params {
+        arrow_params.push(
+             subst(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
+        );
+        extra_ctx_size += 1;
+    }
+    let mut tail = Vec::with_capacity(base.tail.len());
+    for ex in &base.tail {
+        tail.push(
+             subst(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
+        );
+    }
     let head;
     match base.head {
         Ident::Local(i) => {
-            if i < base_ctx_size {
+            if i < shared_ctx_size {
                 head =  Ident::Local(i);
-            } else if i - base_ctx_size < args.len() {
+            } else if i - shared_ctx_size < args.len() {
                 // @Correctness @Completeness deepen this first
-                let mut result = args[i - base_ctx_size].clone();
+                let mut result = deepen(
+                    &args[i - shared_ctx_size],
+                    arg_ctx_size,
+                    extra_ctx_size,
+                );
                 arrow_params.append(&mut result.arrow_params);
                 head = result.head;
                 // @Performance combine these like in eval
@@ -350,7 +365,7 @@ fn subst(
                 result.tail.append(&mut tail);
                 tail = result.tail;
             } else {
-                let e = i - (base_ctx_size + args.len());
+                let e = i - (shared_ctx_size + args.len());
                 head = Ident::Local(arg_ctx_size + e);
             }
         },
@@ -358,3 +373,26 @@ fn subst(
     }
     Expr { arrow_params, head, tail }
 }
+
+fn deepen(arg: &Expr, arg_ctx_size: usize, extra: usize) -> Expr {
+    let mut arrow_params = Vec::with_capacity(arg.arrow_params.len());
+    for ex in &arg.arrow_params {
+        arrow_params.push(
+            deepen(ex, arg_ctx_size, extra)
+        );
+    }
+    let mut tail = Vec::with_capacity(arg.tail.len());
+    for ex in &arg.tail {
+        tail.push(
+            deepen(ex, arg_ctx_size, extra)
+        );
+    }
+    let mut head = arg.head;
+    if let Ident::Local(i) = &mut head {
+        if *i >= arg_ctx_size {
+            *i += extra;
+        }
+    }
+    Expr { arrow_params, head, tail }
+}
+
