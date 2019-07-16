@@ -134,11 +134,19 @@ impl ProgramParser {
                 let associated = self.from_indented(&indented.sublines)?;
                 let program = ast::Item {
                     annotation: annotation.take(),
-                    definition,
+                    definition: Some(definition),
                     associated,
                 };
                 result.push(program);
             } else if let ast::Line::Annotation(it) = output {
+                if annotation.is_some() {
+                    let program = ast::Item {
+                        annotation: annotation.take(),
+                        definition: None,
+                        associated: Vec::new(),
+                    };
+                    result.push(program);
+                }
                 annotation = Some(it);
             }
         }

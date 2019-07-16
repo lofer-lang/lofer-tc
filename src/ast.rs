@@ -23,6 +23,7 @@ pub struct Function {
 }
 
 pub struct Annotation {
+    pub is_post: bool,
     pub name: String,
     pub typ: Expr,
 }
@@ -34,6 +35,6 @@ pub enum Line {
 
 pub struct Item {
     pub annotation: Option<Annotation>,
-    pub definition: Function,
+    pub definition: Option<Function>,
     pub associated: Vec<Item>,
 }

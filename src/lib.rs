@@ -26,8 +26,7 @@ pub fn type_check_all(programs: Vec<ast::Item>) {
 
 struct Item {
     ty: Expr,
-    param_num: usize,
-    def: Expr,
+    def: Option<(usize, Expr)>,
 }
 
 fn type_check_function(
@@ -39,45 +38,55 @@ fn type_check_function(
         unimplemented!();
     }
     if fun.annotation.is_none() {
-        if fun.definition.vars.len() > 0 {
+        if fun.definition.is_none() {
+            panic!("Found neither annotation nor definition?");
+        } else if fun.definition.as_ref().unwrap().vars.len() > 0 {
             panic!("Terms with parameters must have a type annotation");
         } else {
             unimplemented!();
         }
     }
     let annotation = fun.annotation.as_ref().unwrap();
-    if annotation.name != fun.definition.fname {
-        panic!(
-            "Annotation for {} was given alongside definition for {}",
-            annotation.name,
-            fun.definition.fname,
-        );
-    }
-    let var_names = &fun.definition.vars;
-    let param_num = var_names.len();
-    // convert annotation
     let mut ty = convert_expr(
         global_names,
         &Default::default(),
         annotation.typ.clone()
     );
+    // maybe we want to store both eval and non-eval versions?
     eval(globals, &mut ty, 0);
-    // pull param types
-    let mut result = ty.clone();
-    let bindings: Vec<_> = result
-        .arrow_params
-        .drain(0..param_num)
-        .collect();
-    // convert definition
-    let def = convert_expr(
-        global_names,
-        &Context::new(&var_names),
-        fun.definition.body.clone(),
-    );
 
-    // check definition has the right type
-    type_check_expr(globals, &Context::new(&bindings), &def, result);
-    (fun.definition.fname.clone(), Item { ty, param_num, def })
+    if fun.definition.is_none() {
+        (annotation.name.clone(), Item { ty, def: None })
+    } else {
+        let definition = fun.definition.as_ref().unwrap();
+        if annotation.name != definition.fname {
+            panic!(
+                "Annotation for {} was given alongside definition for {}",
+                annotation.name,
+                definition.fname,
+            );
+        }
+        let var_names = &definition.vars;
+        let param_num = var_names.len();
+
+        let def = convert_expr(
+            global_names,
+            &Context::new(&var_names),
+            definition.body.clone(),
+        );
+
+        if !annotation.is_post {
+            let mut result = ty.clone();
+            let bindings: Vec<_> = result
+                .arrow_params
+                .drain(0..param_num)
+                .collect();
+
+            type_check_expr(globals, &Context::new(&bindings), &def, result);
+        }
+
+        (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -316,10 +325,12 @@ fn type_check_expr(
 
         // @Memory maybe subst could take &mut param?
         // @Performance skip this cloning operation if i is 0?
-        let arg_expected = subst(
+        let mut arg_expected = subst(
             &arg_expected_base, expr_ctx_size, 0,
             &expr.tail[0..checked], locals.size(),
         );
+        // @Performance that's a lot of eval
+        eval(globals, &mut arg_expected, locals.size());
         type_check_expr(
             globals,
             &locals,
@@ -353,24 +364,27 @@ fn eval(globals: &Vec<Item>, expr: &mut Expr, mut ctx_size: usize) {
     eval_on(globals, &mut expr.tail, &mut ctx_size, false);
 
     while let Ident::Global(i) = expr.head {
-        let param_num = globals[i].param_num;
-        if expr.tail.len() >= param_num {
-            let mut result = subst(
-                &globals[i].def, 0, 0,
-                &expr.tail[0..param_num], ctx_size,
-            );
-            // recurse... often redundant... @Performance? combine with subst?
-            // type checking should prevent associativity problems
-            // A -> (B -> x y z) w
-            eval_on(globals, &mut result.arrow_params, &mut ctx_size, true);
-            eval_on(globals, &mut result.tail, &mut ctx_size, false);
-            // @Performance we are allocating again every time...
-            // could just combine these steps or something more tricky
-            expr.tail.drain(0..param_num);
-            expr.insert(result);
-        } else {
+        if globals[i].def.is_none() {
             break;
         }
+        let &(param_num, ref def) = globals[i].def.as_ref().unwrap();
+        if expr.tail.len() < param_num {
+            break;
+        }
+
+        let mut result = subst(
+            &def, 0, 0,
+            &expr.tail[0..param_num], ctx_size,
+        );
+        // recurse... often redundant... @Performance? combine with subst?
+        // type checking should prevent associativity problems
+        // A -> (B -> x y z) w
+        eval_on(globals, &mut result.arrow_params, &mut ctx_size, true);
+        eval_on(globals, &mut result.tail, &mut ctx_size, false);
+        // @Performance we are allocating again every time...
+        // could just combine these steps or something more tricky
+        expr.tail.drain(0..param_num);
+        expr.insert(result);
     }
 }
 

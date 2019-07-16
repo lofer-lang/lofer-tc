@@ -13,7 +13,8 @@ Fun: ast::Function = {
 };
 
 Annotation: ast::Annotation = {
-    <name: Name> ":" <typ: Expr> => ast::Annotation {<>},
+    <is_post: "postulate"?> <name: Name> ":" <typ: Expr> =>
+        ast::Annotation { is_post: is_post.is_some(), name, typ },
 };
 
 Expr: ast::Expr = {
