@@ -1,9 +1,8 @@
 use std::iter;
+use line_parser;
+use ast;
 
-use readable;
-use parsers;
-
-pub struct ProgramParser(parsers::readable::LineParser);
+pub struct ProgramParser(super::line_parser::LineParser);
 
 fn count_indent(line: &str) -> usize {
     let mut result = 0;
@@ -100,19 +99,26 @@ fn split_indenting_helper<'a, I>(
 }
 
 type Error<'a> = ::lalrpop_util::ParseError<usize,
-    parsers::readable::Token<'a>, &'a str>;
+    line_parser::Token<'a>, &'a str>;
 
 impl ProgramParser {
     pub fn new() -> Self {
-        let inner = parsers::readable::LineParser::new();
+        let inner = line_parser::LineParser::new();
 
         ProgramParser(inner)
     }
 
     pub fn parse<'a>(self: &Self, input: &'a str)
-        -> Vec<readable::Program>
+        -> Vec<ast::Item>
     {
-        let indented = split_indenting(input.split("\n"));
+        let indented = split_indenting(input
+            .split("\n")
+            .map(|line| line
+                .splitn(2, "--")
+                .next()
+                .unwrap()
+            )
+        );
         self.from_indented(&indented).unwrap() // can't return the error
              // because it would outlive the thing being parsed
              // by switching IndentedCode back to str/Vec<str> we could
@@ -124,20 +130,34 @@ impl ProgramParser {
     }
 
     fn from_indented<'a>(self: &Self, indented: &'a Vec<IndentedCode>)
-        -> Result<Vec<readable::Program>, Error<'a>>
+        -> Result<Vec<ast::Item>, Error<'a>>
     {
         let mut result = Vec::with_capacity(indented.len());
 
+        let mut annotation = None;
         for indented in indented {
             let output = self.0.parse(&indented.line)?;
-            if let readable::Line::Function(output) = output {
+            if let ast::Line::Function(definition) = output {
                 let associated = self.from_indented(&indented.sublines)?;
-                let program = readable::Program { output, associated };
+                let program = ast::Item {
+                    annotation: annotation.take(),
+                    definition: Some(definition),
+                    associated,
+                };
                 result.push(program);
+            } else if let ast::Line::Annotation(it) = output {
+                if annotation.is_some() {
+                    let program = ast::Item {
+                        annotation: annotation.take(),
+                        definition: None,
+                        associated: Vec::new(),
+                    };
+                    result.push(program);
+                }
+                annotation = Some(it);
             }
         }
 
         Ok(result)
     }
 }
-
