@@ -3,42 +3,77 @@ Lofer
 =====
 
 Lofer is a dependently typed functional language that combines the simplicity
-of Scheme with the strength of Agda/Coq.
+of Scheme with the expressiveness of Agda/Coq.
 
-The intention is to use this as a substrate for other more useful languages,
-such that a procedure in one language is a normal object in Lofer.
+The project was originally intended to be part of a grander dependently typed
+_procedural_ programming language, however such a language would be so
+complicated that it ought to be explored from the bottom up, probably starting
+with agda-internalized models first.
 
-For now though it is an interesting toy for those interested in type theory
-and/or functional programming.
+I have since remade it around the concept of postulates with computation rules,
+making the implementation simultaneously simpler and more general: the only
+builtin types are now pi types and universes!
+
+The language also uses strict evaluation, which has already had an impact on my
+understanding of functional programming, but this may change depending on how
+difficult it is to use church encodings with strict evaluation.
+
+Like most experimental dependently typed languages, this language has none of
+the quality of life feature that make Agda or Coq usable and sound:
+- no inference/implicit parameters
+- no instance variables
+- no case/auto tactics
+- no pattern matching
+- no recursion (you need to introduce a fixpoint postulate using the usual
+  definition)
+- no inductive data types!
+- no universe levels/universe consistency checks
+- no termination checks, (in the case that you do introduce a fixpoint)
+- no lambda unification... functions with different names are never equal
+  without assuming extensionality
+- no lambdas or with/where semantics! this may change once I learn what I want
+  to learn about strict evaluation.
+
+beyond this the current implementation also has abysmal error messages, with
+no reference to line numbers/columns, and fully evaluated, anonymized
+identifiers.
+
+`f A B x y = y x` might complain with something like
+"x2 has type x0 but was expected to have type x0 -> x1 x4"
+
+this means that if you are interested in real proof assistance or dependently
+typed programming, agda should be preferred, (or whatever interactive proof
+assistant suits your fancy) however, this language is particularly well suited
+to foundational experiments for figuring out new alternatives to the features
+listed above.
+
+In short the purpose of this language is to allow one to add exotic postulates,
+such as type-level representations of 'constructive recursion', and attempt to
+prove their inconsistency as rapidly as possible.
+
+At some point I may add quality of life features such as inductive data types
+or pattern matching, but I would be particularly interested in implementing
+these as syntax sugars rather than explicit language objects.
+
+I may also add features related to writing full type eliminators for pure
+calculus of constructions, should I find something that can't be represented as
+a type-level postulate.
 
 Program
 =======
 
-The program currently parses human readable code, executes it,
-(without type checking) and displays the result as a lambda expression.
+The program currently parses a single file, type checking each line in the
+context of the previous lines.
+It does not execute any functions unless they appear in the type declarations
+of other functions.
 
-To use the program, run `cargo run -- "file1" "file2" ...`
-Each file will be parsed into a single expression, and then the first
-expression will be applied to the second, then this to the third, and so on.
+To use the program, run `cargo run -- "file"`
 
-The resulting expression is then evaluated, and printed to the screen.
+It will then print the types of each function that successfully type checks,
+along with a single error/success message.
 
-Note
-----
-
-Functions are not internally evaluated, so you will need to apply them to
-arguments to get sane/readable results.
-
-Note that there is no type checker, which does defeat the purpose of having
-a dependently typed language.
-The type checker was implemented a while ago, but after refactoring it was
-never fully reimplemented.
-
-The plan is to implement the type checker within lofer itself.
-
-
-Also the errors aren't very helpful at all!
-
+If there is an error in one function the program will stop altogether, though
+with better error handling it might be able to continue in the future.
 
 Language
 ========
@@ -46,112 +81,153 @@ Language
 Syntax
 ------
 
-A program is a series of function definitions, which take the form:
+A program is a series of function annotations + definitions,
+which take the form:
 ```
-function_name (arg_name: ArgType) (arg_name: ArgType) = expression
+function_name: expression
+function_name arg_name1 arg_name2 = expression
 ```
+
+comments are begun with "--", and multiple lines are concatenated by ending one
+line with `\`.
+These can be combined with `\--` though the middle of a line probably isn't the
+best place for a comment.
 
 for now all identifiers (function names and argument names) start with a letter
 or with `_`, followed by any number of letters, numbers, and `_`s, and finished
 with some number of apostrophes.
 
-The type can be skipped, `f x = x` is acceptable.
-This is useful while the type checker doesn't work, but will also be useful
-if/when type inference is added.
-
-Most expressions are just haskell-style function applications, e.g.
+An expression is basically either a variable applied to a sequence of
+subexpressions, as is typical of functional programming, or a sequence of
+annotations separated by arrows, when representing pi/exponential types. e.g.
 ```
-flip (f: Pi x: A, Pi y: B, C) (y: B) (x: A) = f x y
-```
-
-Further, lines can be indented to have access to the args of a previous
-function:
-```
-flip f = f'
-  f' y x = f x y
+flip: (A: Type) -> (B: Type) -> (C: Type) -> (A -> B -> C) -> B -> A -> C
+flip A B C f y x = f x y
 ```
 
-The last unindented line of a program is the program's output.
+While it is typical for annotations to be arrow expressions and definitions to
+be function applications, the two can be freely mixed.
 
-The language cannot directly recurse, and to enforce this, you cannot refer
-to functions before they have been defined.
-Instead see `fix` for a very rough explanation on how to recurse.
-
-Semantics
----------
-
-Conceptually the language has 6 types/connectives,
-- Void (has no values)
-- Unit (has one value: `tt`)
-- Bool (has two values: `true` and `false`)
-- Sigma (combines a type with a type family, basically pair type)
-- Pi (maps one type to a type family, basically function type)
-- Type, the type of all types
-
-Sigma and Pi are dependently typed, which lets you write types like
 ```
-Pi x: Bool, bool_elim _ Unit Bool x
-```
-which is the type of functions that map `true` to `tt` and `false` to some
-Bool.
+Exp: Type -> Type -> Type
+Exp A B = A -> B
 
-
-The builtin terms for handling these types are:
-- `tt`, `true`, `false` values
-- `pair` function which turns two values into a pair
-- `void_elim` and `unit_elim` which serve no computational role, but have
-  useful types when making safe programs.
-- `bool_elim` and `sigma_elim` which make data types usable
-
-additionally the `fix` term is used to achieve recursion.
-
-The data terms have the following types:
-```
-tt: Unit
-true: Bool
-false: Bool
-pair: Pi Fst: Type, Pi Snd: (Pi _: Fst, Type),
-  Pi x0: Fst, Pi y: Snd x0, Sigma x1: Fst, Snd x1
+Thing: flip Type Type Type Exp ((B: Type) -> B -> Type) Type
+Thing A B x = (C: B -> Type) -> C x -> (y: B) -> C y
 ```
 
-And the eliminators have the following types (For the brave)
+Finally annotations that start with the word `postulate` can have any
+definition (won't be type checked at all) or no definition.
+
+It is recommended to give definitions to any postulates that aren't types, and
+to test postulates in simple equality lemmas to make sure that they still
+handle their parameters correctly.
+
+Type Checking
+-------------
+
+Type checking is straight forward.
+Given an annotation and a definition, the type checker determines both of their
+types, and compares them. An error can occur in any of the following
+conditions:
+- the annotation has no type (a function was applied to the wrong type)
+- the annotation isn't of type `Type`
+- the annotation cannot be evaluated (a type was somehow applied to arguments)
+additionally if the term is not declared to be a postulate, the following
+conditions also trigger an error:
+- the definition has too many parameters for the given annotation
+- the definition has no type
+- the definition's type cannot be evaluated
+- the definition's type does not match the annotation
+
+Evaluation only occurs in the above contexts, there is no way to evaluate a
+function other than by type checking another function.
+
+The type system is just that of any martin-lof type theory.
+
+Functions can have dependent types, `f : (x: A) -> B(x)`
+
+Function evaluation also evaluates types: `(f y) : B(y)` assuming that y has
+type `A`
+
+Arrow expressions immediately have the type `Type`, but won't type check unless
+each parameter along with the final output check as having the type `Type`
+
+`Type` has the type `Type`, which is apparently inconsistent.
+
+Finally postulates are assumed to have the type given, which can generate
+absurd expressions that may eventually cause a runtime error.
+
 ```
-void_elim: Pi A: Type, Pi _: Void, A
-unit_elim: Pi A: (Pi _: Unit, Type),
-  Pi _: A tt, Pi x: Unit, A x
-bool_elim: Pi A: (Pi _: Bool, Type),
-  Pi t: A true, Pi f: A false, Pi x: Bool, A x
-sigma_elim: Pi Fst: Type, Pi Snd: (Pi _: Fst, Type),
-  Pi Out: (Pi _: (Sigma x: Fst, Snd x), Type),
-    Pi f: (Pi x: Fst, Pi y: Snd x, Out (pair x y)),
-      Pi p: (Sigma x: A, B x), Out p
+f: (A: Type) -> A -> Type
+f x = x Type
 ```
 
-These last two eliminators are better understood by what they actually do:
+See proto.ls for an example of how church encoding can be hidden behind
+postulates to create algebraic data types with standard eliminators and
+computation rules.
 
-`bool_elim` is an if-then-else function, that takes two branches, and returns
-one of them based on the bool input. (It takes the branches before it takes the
-bool though!)
+Evaluation Semantics
+--------------------
 
-`sigma_elim` is uncurry, it takes a function like `a -> b -> c` and turns it
-into a function like `(a, b) -> c`
+Unlike typical dependently typed languages, the current implementation of lofer
+is strict call-by-value, and uses partially applied functions to avoid lambdas
+altogether. (Although lambda like semantics still exist in the type families in
+arrow expressions, since a lot more than just equational reasoning is lost if
+pi types can't evaluate.)
+It would be possible to add lambdas and lambda unification in the future, but
+for now since strict evaluation changes so much I personally prefer explicit
+function definitions anyway.
 
-The `fix` function is a fixpoint combinator, it takes a generating function,
-and applies it to itself infinitely.
+Functions do not evaluate until they get the specific number of parameters
+listed in their original definition, at which point they _immediately
+evaluate_, regardless of whether the enclosing function application needs to
+evaluate.
+Evaluation is done as one would expect, by substituting the arguments into the
+definition of the function to get a resul.
 
-`fix` has the following type:
-`fix: Pi A: Type, Pi f: (Pi _: A, A), A`
+One consequence of this is that all functions are essentially a family of data
+structures containing very specific data types, which is very unusual for a
+referentially transparent language.
 
-Be warned, `fix` can result in very unreadable functions if not fully
-evaluated.
+If you want lazy semantics you must make them explicit, typically by
+postulating a `Unit` type, and a `tt` term to populate it, and then adding a
+trivial `Unit` input to the end of any function that must be evaluated lazily.
 
-Fix can be used to make recursive types and recursive functions.
+it is important to note that `const A Unit (x y z)` will not suffice to
+postpone the calculation of x y z. One must
+construct an explicit function `f x y z _ = x y z` and then partially apply
+that.
 
-In haskell one would write `f x y = something f x y`
-but with fix one must instead write
+This means many simple functional algorithms must make their laziness explicit,
+e.g.
 ```
-f = fix f_gen
-  f_gen f0 = f1
-    f1 x y = something f0 x y
+foldr: (A: Type) -> (B: Type) -> (A -> (Unit -> B) -> B) -> B -> \
+  List A -> Unit -> B
+foldr A B f acc (Cons x xs) tt = f x (foldr A B f acc xs)
 ```
+noting that the above relies on recursion and pattern matching not available in
+Lofer.
+
+Particularly the fixpoint combinator would have the following type:
+```
+postulate fix: (A: Type) -> ((Unit -> A) -> A) -> Unit -> A
+-- fix A f tt = f (fix A f)
+```
+
+This allows for short circuiting either for proper termination or better
+performance as normal.
+
+On the other hand strict semantics are the default and no `seq` operator is
+needed. e.g.
+```
+foldl A B f acc (Cons x xs) = foldl A B f (f acc x) xs
+```
+would immediately perform as desired without constructing a thunk chain, unless
+`f acc x` really does construct a thunk chain by partially applying some
+function somehow.
+
+This choice was made in the spirit of referential transparency, but is
+generally an interesting space to explore compared to the standard lazy
+semantics of most functional programming.
 

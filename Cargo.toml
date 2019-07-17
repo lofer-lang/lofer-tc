@@ -1,6 +1,6 @@
 [package]
 name = "lofer-lang"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["SpiveeWorks <spiveehere@gmail.com>"]
 
 [build-dependencies]
