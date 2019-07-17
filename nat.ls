@@ -50,6 +50,12 @@ natsndCur C n y = y
 postulate natsnd: (C: Nat -> Type) -> (p: NatSigma C) -> C (natfst C p)
 natsnd C p = p (C (natfst C p)) (natsndCur C)
 
+-- doesn't type check since y is not lazy
+-- we could just use const (C k) Unit y but we actually want
+-- nat_elim to be lazy!
+-- it turns out that strict execution of church-encoded recursive types
+-- seems to have this problem... it is worth asking what the
+-- church encoding of a lazily evaluated recursive data type really is.
 nat_elim_step_cur: (C: Nat -> Type) -> ((k: Nat) -> (Unit -> C k) -> C (suc k)) -> \
   (k: Nat) -> C k -> NatSigma C
 nat_elim_step_cur C ind k y = natpair C (suc k) (ind k y)

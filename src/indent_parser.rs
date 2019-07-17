@@ -111,7 +111,14 @@ impl ProgramParser {
     pub fn parse<'a>(self: &Self, input: &'a str)
         -> Vec<ast::Item>
     {
-        let indented = split_indenting(input.split("\n"));
+        let indented = split_indenting(input
+            .split("\n")
+            .map(|line| line
+                .splitn(2, "--")
+                .next()
+                .unwrap()
+            )
+        );
         self.from_indented(&indented).unwrap() // can't return the error
              // because it would outlive the thing being parsed
              // by switching IndentedCode back to str/Vec<str> we could

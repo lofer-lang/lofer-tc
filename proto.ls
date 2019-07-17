@@ -29,6 +29,7 @@ FstM A B p = A
 fst: (A: Type) -> (B: A -> Type) -> Sigma A B -> A
 fst A B = uncurry A B (FstM A B) (fstCurr A B)
 
+-- only type checks because of uncurry depending on the pair constructor
 sndCurr: (A: Type) -> (B: A -> Type) -> (x: A) -> B x -> B x
 sndCurr A B x y = y
 SndM: (A: Type) -> (B: A -> Type) -> Sigma A B -> Type
@@ -36,12 +37,16 @@ SndM A B p = B (fst A B p)
 snd: (A: Type) -> (B: A -> Type) -> (p: Sigma A B) -> B (fst A B p)
 snd A B = uncurry A B (SndM A B) (sndCurr A B)
 
+-- church encoding this would be fine for the proofs below,
+-- but J with proper dependence on the refl constructor is nice
 postulate Id: (A: Type) -> A -> A -> Type
 postulate refl: (A: Type) -> (x: A) -> Id A x x
 refl A x refl' = refl' x
 postulate J: (A: Type) -> (C: (x: A) -> (y: A) -> Id A x y -> Type) -> \
   (m: (x: A) -> C x x (refl A x)) -> (x: A) -> (y: A) -> (p: Id A x y) -> C x y p
 J A C m x y p = p m
+-- one could easily assume K if not introducing other Id postulates
+-- such as univalence, although even with extensionality you might not want K
 
 computett: (C: Unit -> Type) -> (m: C tt) -> \
   Id (C tt) (unit_elim C m tt) m
