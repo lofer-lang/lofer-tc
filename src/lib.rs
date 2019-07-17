@@ -92,8 +92,7 @@ fn type_check_function(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ident {
-    //Postulate(usize),
-    Type, // Postulate(0)? Postulate(~0)?
+    Type, // Global(0)? Global(~0)?
     Global(usize),
     Local(usize),
 }
@@ -325,8 +324,8 @@ fn type_check_expr(
                        actual_base);
             }
         }
-        // the first parameter of the actual type is
-        // the expected type for the first argument
+        // the first parameter of the actual type is the expected type for
+        // the first argument
         let arg_expected_base = actual_base.arrow_params.remove(0);
 
         // @Memory maybe subst could take &mut param?
