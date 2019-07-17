@@ -70,3 +70,34 @@ computesnd: (A: Type) -> (B: A -> Type) -> (x: A) -> (y: B x) -> \
   Id (B x) (snd A B (pair A B x y)) y
 computesnd A B x y = refl (B x) y
 
+
+postulate Fix: (F: Type -> Type) -> Type
+postulate fopen: (F: Type -> Type) -> Fix F -> F (Fix F)
+fopen F x = x
+postulate fclose: (F: Type -> Type) -> F (Fix F) -> Fix F
+fclose F x = x
+
+Const: (A: Type) -> (B: Type) -> A -> Type
+Const A B x = B
+
+MaybeFam: (A: Type) -> Bool -> Type
+MaybeFam A = bool_elim (Const Bool Type) A Unit
+Maybe: Type -> Type
+Maybe A = Sigma Bool (MaybeFam A)
+nothing: (A: Type) -> Maybe A
+nothing A = pair Bool (MaybeFam A) false tt
+just: (A: Type) -> A -> Maybe A
+just A = pair Bool (MaybeFam A) true
+
+Nat: Type
+Nat = Fix Maybe
+zero: Nat
+zero = fclose Maybe (nothing Nat)
+suc: Nat -> Nat
+suc n = fclose Maybe (just Nat n)
+pred: Nat -> Maybe Nat
+pred = fopen Maybe
+
+computepred: (n: Nat) -> Id (Maybe Nat) (pred (suc n)) (just Nat n)
+computepred n = refl (Maybe Nat) (just Nat n)
+
