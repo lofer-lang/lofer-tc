@@ -52,6 +52,7 @@ fn type_check_function(
         &Default::default(),
         annotation.typ.clone()
     );
+    type_check_expr(globals, &Context::new(&[]), &ty, &Expr::universe());
     // maybe we want to store both eval and non-eval versions?
     eval(globals, &mut ty, 0);
 
@@ -82,7 +83,7 @@ fn type_check_function(
                 .drain(0..param_num)
                 .collect();
 
-            type_check_expr(globals, &Context::new(&bindings), &def, result);
+            type_check_expr(globals, &Context::new(&bindings), &def, &result);
         }
 
         (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
@@ -130,8 +131,12 @@ impl Expr {
         self.tail = other.tail;
     }
 
-    fn write_grouped(self: &Self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.arrow_params.len() > 0 || self.tail.len() > 0 {
+    fn write_grouped(
+        self: &Self,
+        f: &mut std::fmt::Formatter,
+        group_algs: bool,
+    ) -> std::fmt::Result {
+        if self.arrow_params.len() > 0 || (group_algs && self.tail.len() > 0) {
             write!(f, "({})", self)?;
         } else {
             write!(f, "{}", self)?;
@@ -143,7 +148,7 @@ impl Expr {
 impl std::fmt::Display for Expr {
     fn fmt(self: &Self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         for ex in &self.arrow_params {
-            ex.write_grouped(f)?;
+            ex.write_grouped(f, false)?;
             write!(f, " -> ")?;
         }
         match self.head {
@@ -159,7 +164,7 @@ impl std::fmt::Display for Expr {
         }
         for ex in &self.tail {
             write!(f, " ")?;
-            ex.write_grouped(f)?;
+            ex.write_grouped(f, true)?;
         }
         Ok(())
     }
@@ -278,7 +283,7 @@ fn type_check_expr(
     globals: &Vec<Item>,
     locals: &Context<Expr>,
     expr: &Expr,
-    expected: Expr,
+    expected: &Expr,
 ) {
     let mut new_locals = Vec::new();
     if expr.arrow_params.len() > 0 {
@@ -287,7 +292,7 @@ fn type_check_expr(
                 globals,
                 &locals.push(&new_locals),
                 each,
-                Expr::universe(),
+                &Expr::universe(),
             );
             new_locals.push(each.clone());
         }
@@ -307,6 +312,7 @@ fn type_check_expr(
             if expr.tail.len() > 0 {
                 panic!("Cannot apply type to arguments");
             }
+            assert_type(expr, &Expr::universe(), expected);
             return;
         },
     };
@@ -335,7 +341,7 @@ fn type_check_expr(
             globals,
             &locals,
             &expr.tail[checked],
-            arg_expected,
+            &arg_expected,
         );
         checked += 1;
     }
@@ -345,8 +351,13 @@ fn type_check_expr(
         &expr.tail[0..checked], locals.size(),
     );
     eval(globals, &mut actual, locals.size());
+    assert_type(expr, &actual, expected);
+}
+
+fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) {
     if actual != expected {
-        panic!("Types did not match\n\nexpected: {}\n\ngot: {}", expected, actual);
+        panic!("\n\n{} has type:\n  {}\n\nbut it was expected to have type:\n  {}\n\n",
+               expr, actual, expected);
     }
 }
 
