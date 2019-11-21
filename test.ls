@@ -1,3 +1,8 @@
+Kind: U2
+Kind = U1
+
+Type: Kind
+Type = U0
 
 id: (A: Type) -> A -> A
 id _ x = x

@@ -52,7 +52,7 @@ fn type_check_function(
         &Default::default(),
         annotation.typ.clone()
     );
-    type_check_expr(globals, &Context::new(&[]), &ty, &Expr::universe());
+    sort_check_expr(globals, &Context::new(&[]), &ty);
     // maybe we want to store both eval and non-eval versions?
     eval(globals, &mut ty, 0);
 
@@ -92,7 +92,7 @@ fn type_check_function(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ident {
-    Type, // Global(0)? Global(~0)?
+    Universe(usize),
     Global(usize),
     Local(usize),
 }
@@ -105,20 +105,27 @@ struct Expr {
 }
 
 impl Expr {
-    fn universe() -> Self {
+    fn universe(l: usize) -> Self {
         Expr {
             arrow_params: Vec::new(),
-            head: Ident::Type,
+            head: Ident::Universe(l),
             tail: Vec::new(),
         }
     }
-    fn is_universe(self: &Self) -> bool {
-        *self == Expr::universe()
+    fn universe_level(self: &Self) -> Option<usize> {
+        if self.arrow_params.len() > 0 || self.tail.len() > 0 {
+            None
+        } else {
+            match self.head {
+                Ident::Universe(l) => Some(l),
+                _ => None,
+            }
+        }
     }
 
     fn insert(self: &mut Self, mut other: Self) {
-        if (other.is_universe() || other.arrow_params.len() > 0) &&
-            self.tail.len() > 0
+        if (other.universe_level().is_some() || other.arrow_params.len() > 0)
+            && self.tail.len() > 0
         {
             panic!("Substituted arrow expression into head position");
         }
@@ -151,8 +158,8 @@ impl std::fmt::Display for Expr {
             write!(f, " -> ")?;
         }
         match self.head {
-            Ident::Type => {
-                write!(f, "Type")?;
+            Ident::Universe(l) => {
+                write!(f, "U{}", l)?;
             },
             Ident::Local(i) => {
                 write!(f, "x{}", i)?;
@@ -264,10 +271,15 @@ fn convert_expr(
             Ident::Local(id)
         } else if let Some(id) = get_index(globals, &alg.head) {
             Ident::Global(id)
-        } else if alg.head == "Type" {
-            Ident::Type
         } else {
-            panic!("Could not find term for identifier: {}", alg.head);
+            if &alg.head[..1] != "U" {
+                panic!("Could not find term for identifier: {}", alg.head);
+            }
+            if let Ok(l) = alg.head[1..].parse() {
+                Ident::Universe(l)
+            } else {
+                panic!("Could not find term for identifier: {}", alg.head);
+            }
         }
     };
     let tail = alg
@@ -278,28 +290,20 @@ fn convert_expr(
     Expr { arrow_params, head, tail }
 }
 
-fn type_check_expr(
+fn calculate_type(
     globals: &Vec<Item>,
     locals: &Context<Expr>,
     expr: &Expr,
-    expected: &Expr,
-) {
+) -> Expr {
     let mut new_locals = Vec::new();
     if expr.arrow_params.len() > 0 {
         for each in &expr.arrow_params {
-            type_check_expr(
+            sort_check_expr(
                 globals,
                 &locals.push(&new_locals),
                 each,
-                &Expr::universe(),
             );
             new_locals.push(each.clone());
-        }
-        // doesn't just check that the arrow expression was meant to be a type
-        // the result expression also needs to be a type,
-        // so we are implicitly assigning `expected = universe();`
-        if !expected.is_universe() {
-            panic!("Expected {}, got Type", expected);
         }
     }
     let locals = locals.push(&new_locals);
@@ -307,12 +311,11 @@ fn type_check_expr(
     let (mut actual_base, expr_ctx_size) = match expr.head {
         Ident::Local(i) => (locals.value_from_index(i).clone(), i),
         Ident::Global(i) => (globals[i].ty.clone(), 0),
-        Ident::Type => {
+        Ident::Universe(l) => {
             if expr.tail.len() > 0 {
                 panic!("Cannot apply type to arguments");
             }
-            assert_type(expr, &Expr::universe(), expected);
-            return;
+            return Expr::universe(l+1);
         },
     };
     while checked < expr.tail.len() {
@@ -350,8 +353,35 @@ fn type_check_expr(
         &expr.tail[0..checked], locals.size(),
     );
     eval(globals, &mut actual, locals.size());
+    if expr.arrow_params.len() > 0 && actual.universe_level().is_none() {
+        panic!("Expected element of a universe (in result of arrow expression)");
+    }
+    return actual;
+}
+
+fn sort_check_expr(
+    globals: &Vec<Item>,
+    locals: &Context<Expr>,
+    expr: &Expr,
+) -> usize {
+    let actual = calculate_type(globals, locals, expr);
+    if let Some(l) = actual.universe_level() {
+        l
+    } else {
+        panic!("Expected element of a universe");
+    }
+}
+
+fn type_check_expr(
+    globals: &Vec<Item>,
+    locals: &Context<Expr>,
+    expr: &Expr,
+    expected: &Expr,
+) {
+    let actual = calculate_type(globals, locals, expr);
     assert_type(expr, &actual, expected);
 }
+
 
 fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) {
     if actual != expected {
@@ -408,7 +438,7 @@ fn subst(
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
     // just a dumb default... we overwrite everything
-    let mut result = Expr::universe();
+    let mut result = Expr::universe(0);
     result.arrow_params = Vec::with_capacity(base.arrow_params.len());
     for ex in &base.arrow_params {
         result.arrow_params.push(
