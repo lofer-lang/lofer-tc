@@ -1,3 +1,18 @@
+-- The first prototype of lofer had 4 type connectives built in, (Void, Unit,
+-- Bool, Sigma) which could then be used to build larger ADTs.
+-- In this file we postulate those built-ins, and build larger ADTs as before,
+-- demonstrating that the current postulate system makes those builtins
+-- redundant.
+-- this file also demonstrates (what was) a new alternative to a full fixpoint
+-- operator, which is the fixpoint type constructor paired with intro and elim
+-- rules. (in the first prototype you'd literally apply fix to a type
+-- constructor, which made type checking complicated, to the point where I
+-- stopped maintaining type checking altogether)
+-- both of these techniques have become outdated due to more novel techniques I
+-- have discovered in the last week, but I am continuing to maintain this file
+-- for sentimental reasons. - Jarvis, 2019-11-25
+Type : U1
+Type = U0
 
 postulate Void: Type
 postulate void_elim: (A: Type) -> Void -> A
@@ -14,6 +29,8 @@ postulate false: Bool
 false x y = y
 postulate bool_elim: (C: Bool -> Type) -> C true -> C false -> (x: Bool) -> C x
 bool_elim C mt mf x = x mt mf
+postulate BoolFamily: Type -> Type -> Bool -> Type
+BoolFamily A B x = x A B
 
 postulate Sigma: (A: Type) -> (A -> Type) -> Type
 postulate pair: (A: Type) -> (B: A -> Type) -> (x: A) -> B x -> Sigma A B
@@ -77,11 +94,8 @@ fopen F x = x
 postulate fclose: (F: Type -> Type) -> F (Fix F) -> Fix F
 fclose F x = x
 
-Const: (A: Type) -> (B: Type) -> A -> Type
-Const A B x = B
-
 MaybeFam: (A: Type) -> Bool -> Type
-MaybeFam A = bool_elim (Const Bool Type) A Unit
+MaybeFam A = BoolFamily A Unit
 Maybe: Type -> Type
 Maybe A = Sigma Bool (MaybeFam A)
 nothing: (A: Type) -> Maybe A
