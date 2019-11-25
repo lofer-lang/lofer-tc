@@ -136,7 +136,11 @@ impl ProgramParser {
 
         let mut annotation = None;
         for indented in indented {
-            let output = self.0.parse(&indented.line)?;
+            let output = self.0.parse(&indented.line);
+            if let Err(err) = output {
+                panic!("Parse error on \"{}\", {:?}", &indented.line, err);
+            }
+            let output = output.unwrap();
             if let ast::Line::Function(definition) = output {
                 let associated = self.from_indented(&indented.sublines)?;
                 let program = ast::Item {
