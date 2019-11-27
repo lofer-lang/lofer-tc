@@ -11,6 +11,9 @@ Unit = (A: Type) -> A -> A
 id: Unit
 id A x = x
 
+const: (A: Type) -> A -> (B: Type) -> B -> A
+const A x B y = x
+
 ---------------------
 -- inductive types
 
@@ -30,13 +33,9 @@ ind_open F map x = x
 Into: Type -> Type -> Type
 Into A T = T -> A
 
-helper: (A: Type) -> (map: Mappable (Into A)) -> \
-  Ind (Into A) map -> Ind (Into A) map -> A
-helper A = ind_open (Into A)
 self_apply: (A: Type) -> (map: Mappable (Into A)) -> (A -> A) -> \
   Ind (Into A) map -> A
-self_apply A map f x = f (helper A map x x)
-TODO = f (ind_open (Into A) map x x)
+self_apply A map f x = f (ind_open (Into A) map x x)
 
 -- note fix does not actually use the map function
 fix: (A: Type) -> (map: Mappable (Into A)) -> (A -> A) -> A
@@ -47,8 +46,7 @@ currys_paradox map = fix Void map (id Void)
 
 -- Mappable (Into Void) was already absurd!
 map_void: Neg (Mappable (Into Void))
-map_void map = map Void Unit (id Void) id
-TODO = type checking during above definition is bugged for some reason
+map_void map = map Void Unit (const Unit id Void) (id Void) id
 
 ind_fold_step: (F: Type -> Type) -> (map: Mappable F) -> \
   (A: Type) -> (F A -> A) -> (Ind F map -> A) -> Ind F map -> A

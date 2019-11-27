@@ -58,4 +58,20 @@ false': Bool
 false' A = const (A -> A) A (id A)
 
 
+From: Type -> Type -> Type
+From A T = A -> T
+
+OutputFamily: Type -> Type
+OutputFamily A = (F: Type -> Type) -> F A -> F A
+
+mkOutputFamily: (A: Type) -> OutputFamily A
+mkOutputFamily A F x = x
+
+arrowOutputBug1: (A: Type) -> (B: Type) -> (A -> B) -> A -> B
+arrowOutputBug1 A B f x = \
+  mkOutputFamily B (From A) f x
+
+arrowOutputBug2: (A: Type) -> (B: Type) -> (A -> B) -> A -> B
+arrowOutputBug2 A B f x = \
+  mkOutputFamily B OutputFamily (mkOutputFamily B) (From A) f x
 

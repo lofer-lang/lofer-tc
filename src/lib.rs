@@ -295,20 +295,19 @@ fn calculate_type(
     locals: &Context<Expr>,
     expr: &Expr,
 ) -> Expr {
+    // process variables introduced by arrow expressions
     let mut new_locals = Vec::new();
-    if expr.arrow_params.len() > 0 {
-        for each in &expr.arrow_params {
-            sort_check_expr(
-                globals,
-                &locals.push(&new_locals),
-                each,
-            );
-            new_locals.push(each.clone());
-        }
+    for each in &expr.arrow_params {
+        sort_check_expr(
+            globals,
+            &locals.push(&new_locals),
+            each,
+        );
+        new_locals.push(each.clone());
     }
     let locals = locals.push(&new_locals);
-    let mut checked = 0;
-    let (mut actual_base, expr_ctx_size) = match expr.head {
+    // initialize with type of term in head position
+    let (mut actual, mut expr_ctx_size) = match expr.head {
         Ident::Local(i) => (locals.value_from_index(i).clone(), i),
         Ident::Global(i) => (globals[i].ty.clone(), 0),
         Ident::Universe(l) => {
@@ -318,24 +317,33 @@ fn calculate_type(
             return Expr::universe(l+1);
         },
     };
+    // check that arguments match the type expected in head position
+    let mut checked = 0;
+    let mut subbed = 0;
     while checked < expr.tail.len() {
-        if actual_base.arrow_params.len() == 0 {
+        if actual.arrow_params.len() == 0 {
             // @Performance lazy eval? save the full eval for later
-            eval(globals, &mut actual_base, locals.size());
-            if actual_base.arrow_params.len() == 0 {
+            actual = subst(
+                &actual, expr_ctx_size, 0,
+                &expr.tail[subbed..checked], locals.size(),
+            );
+            subbed = checked;
+            expr_ctx_size = locals.size();
+            eval(globals, &mut actual, locals.size());
+            if actual.arrow_params.len() == 0 {
                 panic!("Cannot apply type family to argument(s): {}",
-                       actual_base);
+                       actual);
             }
         }
         // the first parameter of the actual type is the expected type for
         // the first argument
-        let arg_expected_base = actual_base.arrow_params.remove(0);
+        let arg_expected_base = actual.arrow_params.remove(0);
 
         // @Memory maybe subst could take &mut param?
         // @Performance skip this cloning operation if i is 0?
         let mut arg_expected = subst(
             &arg_expected_base, expr_ctx_size, 0,
-            &expr.tail[0..checked], locals.size(),
+            &expr.tail[subbed..checked], locals.size(),
         );
         // @Performance that's a lot of eval
         eval(globals, &mut arg_expected, locals.size());
@@ -348,9 +356,10 @@ fn calculate_type(
         checked += 1;
     }
 
-    let mut actual = subst(
-        &actual_base, expr_ctx_size, 0,
-        &expr.tail[0..checked], locals.size(),
+    // return result of applying head to all given arguments
+    actual = subst(
+        &actual, expr_ctx_size, 0,
+        &expr.tail[subbed..checked], locals.size(),
     );
     eval(globals, &mut actual, locals.size());
     if expr.arrow_params.len() > 0 && actual.universe_level().is_none() {
