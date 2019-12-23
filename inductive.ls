@@ -1,19 +1,3 @@
-Type: U1
-Type = U0
-
-Void: Type
-Void = (A: Type) -> A
-Neg: Type -> Type
-Neg A = A -> Void
-
-Unit: Type
-Unit = (A: Type) -> A -> A
-id: Unit
-id A x = x
-
-const: (A: Type) -> A -> (B: Type) -> B -> A
-const A x B y = x
-
 ---------------------
 -- inductive types
 
@@ -41,11 +25,11 @@ self_apply A map f x = f (ind_open (Into A) map x x)
 fix: (A: Type) -> (map: Mappable (Into A)) -> (A -> A) -> A
 fix A map f = self_apply A map f (ind_close (Into A) map (self_apply A map f))
 
-currys_paradox: Neg (Mappable (Into Void))
+currys_paradox: Mappable (Into Void) -> Void
 currys_paradox map = fix Void map (id Void)
 
 -- Mappable (Into Void) was already absurd!
-map_void: Neg (Mappable (Into Void))
+map_void: Mappable (Into Void) -> Void
 map_void map = map Void Unit (const Unit id Void) (id Void) id
 
 ind_fold_step: (F: Type -> Type) -> (map: Mappable F) -> \

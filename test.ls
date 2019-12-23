@@ -1,15 +1,3 @@
-Kind: U2
-Kind = U1
-
-Type: Kind
-Type = U0
-
-id: (A: Type) -> A -> A
-id _ x = x
-
-const: (A: Type) -> (B: Type) -> A -> B -> A
-const _ _ x _ = x
-
 leak: (A: Type) -> (B: Type) -> A -> B -> B
 leak _ _ _ x = x
 
@@ -52,10 +40,10 @@ false: Bool
 false A x y = y
 
 true': Bool
-true' A = const A A
+true' A x = const A x A
 
 false': Bool
-false' A = const (A -> A) A (id A)
+false' A = const (A -> A) (id A) A
 
 
 From: Type -> Type -> Type

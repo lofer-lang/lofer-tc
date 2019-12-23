@@ -19,11 +19,14 @@ fn main() {
     args.next();  // first argument is executable itself
 
     let parser = lofer_lang::ProgramParser::new();
+    let mut globals = lofer_lang::Globals::new();
 
     for path in args {
         let program = read_code(&parser, &path);
 
-        lofer_lang::type_check_all(program);
+        println!("Type checking {}", path);
+
+        lofer_lang::type_check_all(&mut globals, program);
     }
     //let expr = conversion::convert(programses);
 

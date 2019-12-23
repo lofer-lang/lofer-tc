@@ -1,7 +1,4 @@
 
-Type: U1
-Type = U0
-
 Repr : Type
 Repr = (A : Type) -> ((A -> Type) -> A) -> A
 
@@ -14,14 +11,17 @@ Const X A y = X
 fromType : Type -> Repr
 fromType T = fromPolyPred (Const T)
 
-Top : Type
-Top = (C : Type) -> C -> C
+postulate type_in_type: Kind -> Type
+type_in_type k = k
 
-ToTop : (Type -> Type) -> Type
-ToTop F = F Top
+Type': Type
+Type' = type_in_type Type
 
-toType : Repr -> Type
-toType x = x Type ToTop
+Pure : (Type -> Type) -> Type
+Pure F = F Unit
 
-assert : Top
-assert = previous term is a type error simply because Repr expects a Type not a Kind
+-- our type system does not have Type in Type! we'd HAVE to use the postulated
+-- version if we were to continue with Girard's paradox
+toUnit : Repr -> Type
+toUnit x = x Type' Pure
+

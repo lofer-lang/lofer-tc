@@ -1,17 +1,3 @@
-Type: U1
-Type = U0
-
-Void: Type
-Void = (A: Type) -> A
-
-Unit: Type
-Unit = (A: Type) -> A -> A
-id: Unit
-id A x = x
-
-const: (A: Type) -> A -> (B: Type) -> B -> A
-const A x B y = x
-
 Ind: (Type -> Type) -> Type
 Ind F = (M: Type) -> (F M -> M) -> M
 

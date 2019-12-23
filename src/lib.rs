@@ -11,27 +11,35 @@ lalrpop_mod!(line_parser);
 
 pub use indent_parser::ProgramParser;
 
-pub fn type_check_all(programs: Vec<ast::Item>) {
-    let mut global_names = Vec::with_capacity(programs.len());
-    let mut globals = Vec::with_capacity(programs.len());
-    for item in &programs {
-        let (name, item) = type_check_function(&global_names, &globals, item);
-        println!("{}: {}", name, item.ty);
-        global_names.push(name);
-        globals.push(item);
-    }
-
-    println!("\nSuccessfully type-checked all items!");
-}
-
 struct Item {
     ty: Expr,
     def: Option<(usize, Expr)>,
 }
 
+pub struct Globals {
+    names: Vec<String>,
+    defs: Vec<Item>,
+}
+
+impl Globals {
+    pub fn new() -> Globals {
+        Globals { names: Vec::new(), defs: Vec::new() }
+    }
+}
+
+pub fn type_check_all(globals: &mut Globals, programs: Vec<ast::Item>) {
+    for item in &programs {
+        let (name, item) = type_check_function(globals, item);
+        println!("{}: {}", name, item.ty);
+        globals.names.push(name);
+        globals.defs.push(item);
+    }
+
+    print!("Successfully type-checked all items!\n\n");
+}
+
 fn type_check_function(
-    global_names: &Vec<String>,
-    globals: &Vec<Item>,
+    globals: &Globals,
     fun: &ast::Item,
 ) -> (String, Item) {
     for _ in &fun.associated {
@@ -48,13 +56,13 @@ fn type_check_function(
     }
     let annotation = fun.annotation.as_ref().unwrap();
     let mut ty = convert_expr(
-        global_names,
+        &globals.names,
         &Default::default(),
         annotation.typ.clone()
     );
-    sort_check_expr(globals, &Context::new(&[]), &ty);
+    sort_check_expr(&globals.defs, &Context::new(&[]), &ty);
     // maybe we want to store both eval and non-eval versions?
-    eval(globals, &mut ty, 0);
+    eval(&globals.defs, &mut ty, 0);
 
     if fun.definition.is_none() {
         (annotation.name.clone(), Item { ty, def: None })
@@ -71,7 +79,7 @@ fn type_check_function(
         let param_num = var_names.len();
 
         let def = convert_expr(
-            global_names,
+            &globals.names,
             &Context::new(&var_names),
             definition.body.clone(),
         );
@@ -83,7 +91,7 @@ fn type_check_function(
                 .drain(0..param_num)
                 .collect();
 
-            type_check_expr(globals, &Context::new(&bindings), &def, &result);
+            type_check_expr(&globals.defs, &Context::new(&bindings), &def, &result);
         }
 
         (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
