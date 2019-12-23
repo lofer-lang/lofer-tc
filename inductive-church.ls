@@ -31,16 +31,16 @@ currys_paradox A open close = self_apply A open (close (self_apply A open))
 IntoMethod: Type -> Type -> Type
 IntoMethod A M = (M -> A) -> M
 
-method_implies_nn: (M: Type) -> IntoMethod Void M -> (M -> Void) -> Void
-method_implies_nn M m nm = nm (m nm)
+method_implies_irref: (M: Type) -> IntoMethod Void M -> Irref M
+method_implies_irref M m nm = nm (m nm)
 
-stab_implies_fold: (M: Type) -> (((M -> Void) -> Void) -> M) -> ((M -> Void) -> M) -> M
-stab_implies_fold M stab m = stab (method_implies_nn M m)
+stab_implies_fold: (M: Type) -> Stab M -> ((M -> Void) -> M) -> M
+stab_implies_fold M stab m = stab (method_implies_irref M m)
 
 -- does this mean Ind (Into Void) is irrefutable?
 -- hence not openable, since A->~A -> (~~A)->~A -> ~A -> Void
-build_ind0: ((A: Type) -> ((A -> Void) -> Void) -> A) -> Ind (Into Void)
-build_ind0 stab M m = stab M (method_implies_nn M m)
+build_ind0: ((A: Type) -> Stab A) -> Ind (Into Void)
+build_ind0 stab M m = stab M (method_implies_irref M m)
 
 build_ind1: Ind (Into Unit)
 build_ind1 M m = m (const Unit id M)
