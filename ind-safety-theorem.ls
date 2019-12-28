@@ -19,13 +19,8 @@ nonempty_case F map fv npara = npara Unit \
   (const Unit id (F Unit)) \
   (const (F Unit) (map Void Unit (void_fold Unit) fv) Unit)
 
-combine_cases: (F: Type -> Type) -> \
-  Mappable F -> Dec (F Void) -> Neg (Paradoxical F)
-combine_cases F map dec = \
-  dec (Neg (Paradoxical F)) (nonempty_case F map) (empty_case F)
-
 inductive_safety_theorem: (F: Type -> Type) -> \
   Mappable F -> Neg (Paradoxical F)
 inductive_safety_theorem F map = \
-  dec_lemma (F Void) (Paradoxical F) (combine_cases F map)
+  neg_cases (F Void) (Paradoxical F) (nonempty_case F map) (empty_case F)
 

@@ -7,7 +7,7 @@ do
 		proto.ls)
 			./target/debug/lofer-lang $i || exit
 			;;
-		ind-safety-theorem.ls | inductive-church.ls)
+		negative_extras.ls | ind-safety-theorem.ls | inductive-church.ls)
 			./target/debug/lofer-lang prelude.ls negative.ls $i || exit
 			;;
 		*)
