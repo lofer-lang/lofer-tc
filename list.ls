@@ -1,50 +1,58 @@
 
+List_Node: Type -> Type -> Type
+List_Node A B = Maybe (Prod A B)
+
+List_Node_case: (A: Type) -> (B: Type) -> (M: Type) -> M -> (A -> B -> M) -> \
+  List_Node A B -> M
+List_Node_case A B M x f = Maybe_case (Prod A B) M x (Prod_case A B M f)
+
+List_Node_map_method: (A: Type) -> (B: Type) -> (C: Type) -> (B -> C) -> \
+  A -> B -> List_Node A C
+List_Node_map_method A B C f x y = just (Prod A C) (Prod_intro A C x (f y))
+
+List_Node_map: (A: Type) -> Mappable (List_Node A)
+List_Node_map A B C f = List_Node_case A B (List_Node A C) \
+  (nothing (Prod A C)) (List_Node_map_method A B C f)
+
 List: Type -> Type
-List A = (M: Type) -> M -> (A -> M -> M) -> M
+List A = Rec (List_Node A)
 
 empty: (A: Type) -> List A
-empty A M mb mf = mb
+empty A = Rec_close (List_Node A) (List_Node_map A) (nothing (Prod A (List A)))
 
-consl: (A: Type) -> A -> List A -> List A
-consl A x xs M mb mf = mf x (xs M mb mf)
+cons: (A: Type) -> A -> List A -> List A
+cons A x xs = Rec_close (List_Node A) (List_Node_map A) \
+  (just (Prod A (List A)) (Prod_intro A (List A) x xs))
 
--- recursive definitions like `List A = Maybe (Pair A (List A))`
--- have foldl and foldr but only one cons
--- direct definitions like `List A = (Maybe (Pair A B) -> B) -> B`
--- have consl and consr but only one fold!
--- it feels a lot like a droplist (List A -> List A) but without depending
--- on a previous definition of List A
-consr: (A: Type) -> List A -> A -> List A
-consr A xs x M mb mf = xs M (mf x mb) mf
+uncons: (A: Type) -> List A -> Maybe (Prod A (List A))
+uncons A = Rec_open (List_Node A) (List_Node_map A)
 
-consr': (A: Type) -> A -> List A -> List A
-consr' A x xs = consr A xs x
+List_case: (A: Type) -> (M: Type) -> M -> (A -> List A -> M) -> List A -> M
+List_case A M me mc xs = List_Node_case A (List A) M me mc (uncons A xs)
 
-reverse: (A: Type) -> List A -> List A
-reverse A xs = xs (List A) (empty A) (consr' A)
+List_fold: (A: Type) -> (M: Type) -> M -> (A -> M -> M) -> List A -> M
+List_fold A M me mc = Rec_fold (List_Node A) (List_Node_map A) M \
+  (List_Node_case A M M me mc)
 
-zero: List Unit
-zero = empty Unit
+postulate List_Fam: (A: Type) -> Type -> (A -> Type -> Type) -> List A -> Type
+List_Fam A = List_fold A Type
 
-suc: List Unit -> List Unit
-suc = consl Unit id
+postulate List_elim: (A: Type) -> (M: List A -> Type) -> \
+  M (empty A) -> ((x: A) -> (xs: List A) -> M (cons A x xs)) -> \
+  (xs: List A) -> M xs
+List_elim A M me mc xs = List_Node_case A (List A) (M xs) me mc xs
 
-pair: (A: Type) -> A -> A -> List A
-pair A x y M mb mf = mf x (mf y mb)
-
-data01: List (List Unit)
-data01 = pair (List Unit) zero (suc zero)
-
-data10: List (List Unit)
-data10 = pair (List Unit) (suc zero) zero
-
-Eq: (A: Type) -> A -> A -> Type
-Eq A x y = (C: A -> Type) -> C x -> C y
-
-refl: (A: Type) -> (x: A) -> Eq A x x
-refl A x C cx = cx
-
-test_reverse: (M: Type) -> (b: M) -> (f: List Unit -> M -> M) -> \
-  Eq M (data01 M b f) (reverse (List Unit) data10 M b f)
-test_reverse M b f = refl M (f zero (f (suc zero) b))
+List_ind_step_method: (A: Type) -> (M: List A -> Type) -> \
+  ((x: A) -> (xs: List A) -> M xs -> M (cons A x xs)) -> \
+  ((xs: List A) -> M xs) -> \
+  (x: A) -> (xs: List A) -> M (cons A x xs)
+List_ind_step_method A M mc prev x xs = mc x xs (prev xs)
+List_ind_step: (A: Type) -> (M: List A -> Type) -> M (empty A) -> \
+  ((x: A) -> (xs: List A) -> M xs -> M (cons A x xs)) -> \
+  ((xs: List A) -> M xs) -> (xs: List A) -> M xs
+List_ind_step A M me mc prev = List_elim A M me (List_ind_step_method A M mc prev)
+postulate List_ind: (A: Type) -> (M: List A -> Type) -> M (empty A) -> \
+  ((x: A) -> (xs: List A) -> M xs -> M (cons A x xs)) -> \
+  (xs: List A) ->M xs
+List_ind A M me mc = fix ((xs: List A) -> M xs) id (List_ind_step A M me mc)
 

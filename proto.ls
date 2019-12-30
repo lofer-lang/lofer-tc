@@ -62,8 +62,7 @@ refl A x refl' = refl' x
 postulate J: (A: Type) -> (C: (x: A) -> (y: A) -> Id A x y -> Type) -> \
   (m: (x: A) -> C x x (refl A x)) -> (x: A) -> (y: A) -> (p: Id A x y) -> C x y p
 J A C m x y p = p m
--- one could easily assume K if not introducing other Id postulates
--- such as univalence, although even with extensionality you might not want K
+-- one could easily assume K but usual preference is not to
 
 computett: (C: Unit -> Type) -> (m: C tt) -> \
   Id (C tt) (unit_elim C m tt) m
