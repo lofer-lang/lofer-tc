@@ -7,8 +7,8 @@ Type = U0
 Void: Type
 Void = (A: Type) -> A
 
-void_fold: (A: Type) -> Void -> A
-void_fold A x = x A
+Void_case: (A: Type) -> Void -> A
+Void_case A x = x A
 
 Unit: Type
 Unit = (A: Type) -> A -> A
@@ -18,4 +18,7 @@ id A x = x
 
 const: (A: Type) -> A -> (B: Type) -> B -> A
 const A x B y = x
+
+Const: (T: Type) -> (B: Type) -> B -> Type
+Const T B y = T
 

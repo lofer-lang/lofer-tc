@@ -12,15 +12,15 @@ Mappable: (Type -> Type) -> Type
 Mappable F = (A: Type) -> (B: Type) -> (A -> B) -> F A -> F B
 
 empty_case: (F: Type -> Type) -> Neg (F Void) -> Neg (Paradoxical F)
-empty_case F nfv para = para Void nfv (void_fold (F Void))
+empty_case F nfv para = para Void nfv (Void_case (F Void))
 
 nonempty_case: (F: Type -> Type) -> Mappable F -> F Void -> Neg (Paradoxical F)
 nonempty_case F map fv npara = npara Unit \
   (const Unit id (F Unit)) \
-  (const (F Unit) (map Void Unit (void_fold Unit) fv) Unit)
+  (const (F Unit) (map Void Unit (Void_case Unit) fv) Unit)
 
 inductive_safety_theorem: (F: Type -> Type) -> \
   Mappable F -> Neg (Paradoxical F)
 inductive_safety_theorem F map = \
-  neg_cases (F Void) (Paradoxical F) (nonempty_case F map) (empty_case F)
+  Neg_cases (F Void) (Paradoxical F) (nonempty_case F map) (empty_case F)
 
