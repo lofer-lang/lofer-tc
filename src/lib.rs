@@ -65,6 +65,9 @@ fn type_check_function(
     eval(&globals.defs, &mut ty, 0);
 
     if fun.definition.is_none() {
+        if !annotation.is_post {
+            panic!("Item {} has no definition", annotation.name);
+        }
         (annotation.name.clone(), Item { ty, def: None })
     } else {
         let definition = fun.definition.as_ref().unwrap();
