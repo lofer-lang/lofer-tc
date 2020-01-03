@@ -59,12 +59,14 @@ fn type_check_function(
         }
     }
     let annotation = fun.annotation.as_ref().unwrap();
+    let ref mut metas = Vec::new();
     let mut ty = convert_expr(
         &globals.names,
+        metas,
         &Default::default(),
         annotation.typ.clone()
     );
-    sort_check_expr(&globals.defs, &Context::new(&[]), &ty);
+    sort_check_expr(&globals.defs, metas, &Context::new(&[]), &ty);
     // maybe we want to store both eval and non-eval versions?
     eval(&globals.defs, &mut ty, 0);
 
@@ -87,6 +89,7 @@ fn type_check_function(
 
         let def = convert_expr(
             &globals.names,
+            metas,
             &Context::new(&var_names),
             definition.body.clone(),
         );
@@ -98,7 +101,7 @@ fn type_check_function(
                 .drain(0..param_num)
                 .collect();
 
-            type_check_expr(&globals.defs, &Context::new(&bindings), &def, &result);
+            type_check_expr(&globals.defs, metas, &Context::new(&bindings), &def, &result);
         }
 
         (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
@@ -110,7 +113,7 @@ enum Ident {
     Universe(usize),
     Global(usize),
     Local(usize),
-    Meta(usize),
+    Meta(usize, u32),
 }
 
 #[derive(Clone, PartialEq)]
@@ -121,6 +124,7 @@ struct Expr {
 }
 
 impl Expr {
+    // @Simplicity from_head()?
     fn universe(l: usize) -> Self {
         Expr {
             arrow_params: Vec::new(),
@@ -136,18 +140,6 @@ impl Expr {
                 Ident::Universe(l) => Some(l),
                 _ => None,
             }
-        }
-    }
-
-    fn meta_ident(self: &Self) -> Option<usize> {
-        if let Ident::Meta(i) = self.head {
-            if self.arrow_params.len() == 0 && self.tail.len() == 0 {
-                Some(i)
-            } else {
-                None
-            }
-        } else {
-            None
         }
     }
 
@@ -195,8 +187,14 @@ impl std::fmt::Display for Expr {
             Ident::Global(i) => {
                 write!(f, "g{}", i)?;
             },
-            Ident::Meta(i) => {
+            Ident::Meta(i, n) => {
                 write!(f, "_{}", i)?;
+                if n > 0 {
+                    write!(f, "_")?;
+                    for _ in 0..n {
+                        write!(f, "t")?;
+                    }
+                }
             },
         }
         for ex in &self.tail {
@@ -277,6 +275,7 @@ fn get_index<T: PartialEq>(names: &[T], name: &T) -> Option<usize> {
 
 fn convert_expr(
     globals: &Vec<String>,
+    metas: &mut Vec<unify::Meta>,
     locals: &Context<String>,
     mut expr: ast::Expr,
 ) -> Expr {
@@ -285,7 +284,7 @@ fn convert_expr(
     while let ast::Expr::Arrow(ast::ArrowExpr { params, output }) = expr {
         for (name, ty) in params {
             arrow_params.push(
-                convert_expr(globals, &locals.push(&new_locals), ty)
+                convert_expr(globals, metas, &locals.push(&new_locals), ty)
             );
             new_locals.push(name.unwrap_or_else(|| "_".into()));
         }
@@ -298,7 +297,9 @@ fn convert_expr(
     };
 
     let head = {
-        if let Some(id) = locals.index_from_value(&alg.head) {
+        if alg.head == "_" {
+            unify::meta(metas).head
+        } else if let Some(id) = locals.index_from_value(&alg.head) {
             Ident::Local(id)
         } else if let Some(id) = get_index(globals, &alg.head) {
             Ident::Global(id)
@@ -316,13 +317,14 @@ fn convert_expr(
     let tail = alg
         .tail
         .into_iter()
-        .map(|ex| convert_expr(globals, &locals, ex))
+        .map(|ex| convert_expr(globals, metas, &locals, ex))
         .collect();
     Expr { arrow_params, head, tail }
 }
 
 fn calculate_type(
     globals: &Vec<Item>,
+    metas: &mut Vec<unify::Meta>,
     locals: &Context<Expr>,
     expr: &Expr,
 ) -> Expr {
@@ -331,6 +333,7 @@ fn calculate_type(
     for each in &expr.arrow_params {
         sort_check_expr(
             globals,
+            metas,
             &locals.push(&new_locals),
             each,
         );
@@ -347,8 +350,12 @@ fn calculate_type(
             }
             return Expr::universe(l+1);
         },
-        Ident::Meta(i) => {
-            unimplemented!();
+        Ident::Meta(i, n) => {
+            (Expr {
+                arrow_params: Vec::new(),
+                head: Ident::Meta(i, n+1),
+                tail: Vec::new(),
+            }, locals.size())
         },
     };
     // check that arguments match the type expected in head position
@@ -383,6 +390,7 @@ fn calculate_type(
         eval(globals, &mut arg_expected, locals.size());
         type_check_expr(
             globals,
+            metas,
             &locals,
             &expr.tail[checked],
             &arg_expected,
@@ -404,10 +412,11 @@ fn calculate_type(
 
 fn sort_check_expr(
     globals: &Vec<Item>,
+    metas: &mut Vec<unify::Meta>,
     locals: &Context<Expr>,
     expr: &Expr,
 ) -> usize {
-    let actual = calculate_type(globals, locals, expr);
+    let actual = calculate_type(globals, metas, locals, expr);
     if let Some(l) = actual.universe_level() {
         l
     } else {
@@ -417,17 +426,18 @@ fn sort_check_expr(
 
 fn type_check_expr(
     globals: &Vec<Item>,
+    metas: &mut Vec<unify::Meta>,
     locals: &Context<Expr>,
     expr: &Expr,
     expected: &Expr,
 ) {
-    let actual = calculate_type(globals, locals, expr);
-    assert_type(expr, &actual, expected);
+    let actual = calculate_type(globals, metas, locals, expr);
+    assert_type(metas, expr, &actual, expected);
 }
 
 
-fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) {
-    if actual != expected {
+fn assert_type(metas: &mut Vec<unify::Meta>, expr: &Expr, actual: &Expr, expected: &Expr) {
+    if unify::unify(metas, actual.clone(), expected.clone()).is_err() {
         panic!("\n\n{} has type:\n  {}\n\nbut it was expected to have type:\n  {}\n\n",
                expr, actual, expected);
     }

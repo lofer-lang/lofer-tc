@@ -2,31 +2,40 @@ use super::*;
 
 pub(super) struct Meta {
     solution: Option<Expr>,
-    ty: Expr,
     // @Performance flatten, @Performance bitset, @Performance alloca
     dependencies: Vec<bool>,
+    type_constraints: Vec<(u32, Expr)>,
 }
 
-pub(super) fn meta(metas: &mut Vec<Meta>, ty: Expr) -> Expr {
-    metas.push(Meta { solution: None, ty, dependencies: Vec::new() });
+pub(super) fn meta(metas: &mut Vec<Meta>) -> Expr {
+    let meta = Meta {
+        solution: None,
+        dependencies: Vec::new(),
+        type_constraints: Vec::new(),
+    };
+    let id = metas.len();
+    metas.push(meta);
     Expr {
         arrow_params: Vec::new(),
-        head: Ident::Meta(metas.len() - 1),
+        head: Ident::Meta(id, 0),
         tail: Vec::new()
     }
 }
 
-fn unify(metas: &mut Vec<Meta>, mut lhs: Expr, mut rhs: Expr) -> Result<(), ()> {
+// @Performance &Expr?
+pub(super) fn unify(metas: &mut Vec<Meta>, mut lhs: Expr, mut rhs: Expr)
+    -> Result<(), ()>
+{
     let mut lhs_var = None;
     loop {
-        if let Some(i) = lhs.meta_ident() {
+        if let Ident::Meta(i, 0) = lhs.head {
             lhs_var = Some(i);
             if let Some(x) = metas[i].solution.clone() {
                 lhs = x;
                 continue;
             }
         }
-        if let Some(i) = rhs.meta_ident() {
+        if let Ident::Meta(i, 0) = rhs.head {
             // _n = _n always unifies without adding any information
             if lhs_var == Some(i) {
                 return Ok(());
@@ -38,11 +47,11 @@ fn unify(metas: &mut Vec<Meta>, mut lhs: Expr, mut rhs: Expr) -> Result<(), ()> 
         }
         lhs_var = None;
 
-        if let Some(i) = lhs.meta_ident() {
-            return check_solution(metas, i, rhs);
+        if let Ident::Meta(i, n) = lhs.head {
+            return check_solution(metas, i, n, rhs);
         }
-        if let Some(i) = rhs.meta_ident() {
-            return check_solution(metas, i, lhs);
+        if let Ident::Meta(i, n) = rhs.head {
+            return check_solution(metas, i, n, lhs);
         }
 
         if lhs.arrow_params.len() > 0 && rhs.arrow_params.len() > 0 {
@@ -72,7 +81,7 @@ fn check_deps(metas: &Vec<Meta>, deps: &mut Vec<bool>, sol: &Expr) {
     for x in &sol.tail {
         check_deps(metas, deps, x);
     }
-    if let Ident::Meta(i) = sol.head {
+    if let Ident::Meta(i, _n) = sol.head {
         // @Performance if deps[i] { return; } // short circuit condition should hold
         deps[i] = true;
         for j in 0..metas[i].dependencies.len() {
@@ -81,7 +90,11 @@ fn check_deps(metas: &Vec<Meta>, deps: &mut Vec<bool>, sol: &Expr) {
     }
 }
 
-fn check_solution(metas: &mut Vec<Meta>, i: usize, sol: Expr) -> Result<(), ()> {
+fn check_solution(metas: &mut Vec<Meta>, i: usize, n: u32, sol: Expr) -> Result<(), ()> {
+    if n != 0 {
+        metas[i].type_constraints.push((n, sol));
+        return Ok(());
+    }
     let mut deps = Vec::new();
     deps.resize(metas.len(), false);
     check_deps(metas, &mut deps, &sol);
@@ -102,7 +115,7 @@ mod tests {
     #[test]
     fn basic_unify() {
         let ref mut metas = Vec::new();
-        let x = meta(metas, Expr::universe(1));
+        let x = meta(metas);
         unify(metas, x.clone(), x.clone()).unwrap();
         unify(metas, x.clone(), Expr::universe(0)).unwrap();
         unify(metas, x.clone(), Expr::universe(0)).unwrap();
@@ -115,8 +128,8 @@ mod tests {
     #[test]
     fn cycle() {
         let ref mut metas = Vec::new();
-        let x = meta(metas, Expr::universe(1));
-        let y = meta(metas, Expr::universe(1));
+        let x = meta(metas);
+        let y = meta(metas);
         let mut t1 = Expr::universe(0);
         t1.arrow_params.push(y.clone());
         unify(metas, x.clone(), t1).unwrap();
