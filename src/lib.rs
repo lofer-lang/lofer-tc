@@ -59,14 +59,14 @@ fn type_check_function(
         }
     }
     let annotation = fun.annotation.as_ref().unwrap();
-    let ref mut metas = Vec::new();
+    let mut metas = Vec::new();
     let mut ty = convert_expr(
         &globals.names,
-        metas,
+        &mut metas,
         &Default::default(),
         annotation.typ.clone()
     );
-    sort_check_expr(&globals.defs, metas, &Context::new(&[]), &ty);
+    sort_check_expr(&globals.defs, &mut metas, &Context::new(&[]), &ty);
     // maybe we want to store both eval and non-eval versions?
     eval(&globals.defs, &mut ty, 0);
 
@@ -89,7 +89,7 @@ fn type_check_function(
 
         let def = convert_expr(
             &globals.names,
-            metas,
+            &mut metas,
             &Context::new(&var_names),
             definition.body.clone(),
         );
@@ -101,8 +101,19 @@ fn type_check_function(
                 .drain(0..param_num)
                 .collect();
 
-            type_check_expr(&globals.defs, metas, &Context::new(&bindings), &def, &result);
+            type_check_expr(&globals.defs, &mut metas, &Context::new(&bindings), &def, &result);
         }
+
+        let sol = unify::link_solution(
+            &globals.defs,
+            &Context::new(&[]),
+            metas,
+        ).unwrap();
+        for i in 0..sol.len() {
+            print!("_{}: {} = {}\n  ", i, &sol[i].ty, &sol[i].val);
+        }
+        let ty = subst_metas(&ty, 0, 0, &sol, 0);
+        let def = subst_metas(&def, 0, 0, &sol, 0);
 
         (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
     }
@@ -110,7 +121,7 @@ fn type_check_function(
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ident {
-    Universe(usize),
+    Universe(u32),
     Global(usize),
     Local(usize),
     Meta(usize, u32),
@@ -124,15 +135,10 @@ struct Expr {
 }
 
 impl Expr {
-    // @Simplicity from_head()?
-    fn universe(l: usize) -> Self {
-        Expr {
-            arrow_params: Vec::new(),
-            head: Ident::Universe(l),
-            tail: Vec::new(),
-        }
+    fn ident(head: Ident) -> Expr {
+        Expr { arrow_params: Vec::new(), head, tail: Vec::new() }
     }
-    fn universe_level(self: &Self) -> Option<usize> {
+    fn universe_level(self: &Self) -> Option<u32> {
         if self.arrow_params.len() > 0 || self.tail.len() > 0 {
             None
         } else {
@@ -348,9 +354,12 @@ fn calculate_type(
             if expr.tail.len() > 0 {
                 panic!("Cannot apply type to arguments");
             }
-            return Expr::universe(l+1);
+            return Expr::ident(Ident::Universe(l+1));
         },
         Ident::Meta(i, n) => {
+            if n != 0 {
+                println!("Had to find type of type of a metavariable!");
+            }
             (Expr {
                 arrow_params: Vec::new(),
                 head: Ident::Meta(i, n+1),
@@ -415,7 +424,7 @@ fn sort_check_expr(
     metas: &mut Vec<unify::Meta>,
     locals: &Context<Expr>,
     expr: &Expr,
-) -> usize {
+) -> u32 {
     let actual = calculate_type(globals, metas, locals, expr);
     if let Some(l) = actual.universe_level() {
         l

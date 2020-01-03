@@ -108,36 +108,66 @@ fn check_solution(metas: &mut Vec<Meta>, i: usize, n: u32, sol: Expr) -> Result<
     }
 }
 
-#[cfg(test)]
-mod tests {
-    //use *;
-    use unify::*;
-    #[test]
-    fn basic_unify() {
-        let ref mut metas = Vec::new();
-        let x = meta(metas);
-        unify(metas, x.clone(), x.clone()).unwrap();
-        unify(metas, x.clone(), Expr::universe(0)).unwrap();
-        unify(metas, x.clone(), Expr::universe(0)).unwrap();
-        unify(metas, x.clone(), Expr::universe(1)).unwrap_err();
-        if metas[0].solution != Some(Expr::universe(0)) {
-            panic!("Did not write meta variable");
+pub(super) struct MetaSolution {
+    pub val: Expr,
+    pub ty: Expr,
+    pub level: u32,
+}
+
+pub(super) fn link_solution(globals: &Vec<Item>, locals: &Context<Expr>, metas: Vec<Meta>)
+    -> Result<Vec<MetaSolution>, ()>
+{
+    let mut solution = Vec::with_capacity(metas.len());
+    for i in 0..metas.len() {
+        solution.push(MetaSolution {
+            val: Expr::ident(Ident::Meta(i, 0)),
+            ty: Expr::ident(Ident::Meta(i, 1)),
+            level: u32::max_value(),
+        });
+    }
+    let mut solved = Vec::new();
+    solved.resize(metas.len(), false);
+    let mut solved_count = 0;
+    while solved_count < metas.len() {
+        let mut next = None;
+        for i in 0..metas.len() {
+            let mut ready = true;
+            for j in 0..metas.len() {
+                if !solved[j] && metas[i].dependencies[j] {
+                    ready = false;
+                    break;
+                }
+            }
+            if ready {
+                next = Some(i);
+                break;
+            }
+        }
+        if next.is_none() {
+            return Err(());
+        }
+        let i = next.unwrap();
+        let new_sol = subst_metas(&metas[i].solution.as_ref().unwrap(), 0, 0,
+            &solution, 0);
+        solution[i].ty = calculate_type(globals, &mut Vec::new(), locals, &new_sol);
+        solution[i].val = new_sol;
+
+        solved_count += 1;
+    }
+    for i in 0..metas.len() {
+        for &(n, ref val) in &metas[i].type_constraints {
+            if n == 0 {
+                panic!("Type constraint on actual value?");
+            }
+            if n > 1 {
+                unimplemented!();
+            }
+            let expected = subst_metas(val, 0, 0, &solution, 0);
+            if expected != solution[i].ty {
+                return Err(());
+            }
         }
     }
-
-    #[test]
-    fn cycle() {
-        let ref mut metas = Vec::new();
-        let x = meta(metas);
-        let y = meta(metas);
-        let mut t1 = Expr::universe(0);
-        t1.arrow_params.push(y.clone());
-        unify(metas, x.clone(), t1).unwrap();
-        assert_eq!(metas[0].dependencies, vec![false, true]);
-        let mut t2 = Expr::universe(0);
-        t2.arrow_params.push(x.clone());
-        unify(metas, y.clone(), t2).unwrap_err();
-        assert_eq!(metas[1].dependencies, vec![true, true]);
-    }
+    Ok(solution)
 }
 

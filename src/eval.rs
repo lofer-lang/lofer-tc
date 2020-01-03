@@ -48,7 +48,7 @@ pub(super) fn subst(
     args: &[Expr], arg_ctx_size: usize,
 ) -> Expr {
     // just a dumb default... we overwrite everything
-    let mut result = Expr::universe(0);
+    let mut result = Expr::ident(Ident::Universe(0));
     result.arrow_params = Vec::with_capacity(base.arrow_params.len());
     for ex in &base.arrow_params {
         result.arrow_params.push(
@@ -76,6 +76,45 @@ pub(super) fn subst(
             } else {
                 let e = i - (shared_ctx_size + args.len());
                 result.head = Ident::Local(arg_ctx_size + e);
+            }
+        },
+        _ => result.head = base.head,
+    }
+    result
+}
+
+pub(super) fn subst_metas(
+    base: &Expr, shared_ctx_size: usize, mut extra_ctx_size: usize,
+    args: &[unify::MetaSolution], arg_ctx_size: usize,
+) -> Expr {
+    // just a dumb default... we overwrite everything
+    let mut result = Expr::ident(Ident::Universe(0));
+    result.arrow_params = Vec::with_capacity(base.arrow_params.len());
+    for ex in &base.arrow_params {
+        result.arrow_params.push(
+             subst_metas(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
+        );
+        extra_ctx_size += 1;
+    }
+    result.tail = Vec::with_capacity(base.tail.len());
+    for ex in &base.tail {
+        result.tail.push(
+             subst_metas(ex, shared_ctx_size, extra_ctx_size, args, arg_ctx_size)
+        );
+    }
+    match base.head {
+        Ident::Meta(i, n) => {
+            let sol = &args[i];
+            if n >= 2 {
+                result.head = Ident::Universe(sol.level + n - 2);
+            } else {
+                let arg = if n == 0 { &sol.val } else { &sol.ty };
+                let arg = deepen(
+                    arg,
+                    arg_ctx_size,
+                    extra_ctx_size,
+                );
+                result.insert(arg);
             }
         },
         _ => result.head = base.head,
