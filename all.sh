@@ -16,6 +16,12 @@ do
 		nat.ls | list.ls)
 			./target/debug/lofer-lang prelude.ls rec.ls data.ls $i || exit
 			;;
+		weak.ls)
+			./target/debug/lofer-lang prelude.ls rec.ls data.ls eq.ls $i || exit
+			;;
+		fix-test.ls)
+			./target/debug/lofer-lang prelude.ls rec.ls data.ls nat.ls eq.ls $i || exit
+			;;
 		*)
 			./target/debug/lofer-lang prelude.ls $i || exit
 			;;
