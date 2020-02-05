@@ -18,20 +18,28 @@ struct Item {
 
 pub struct Globals {
     names: Vec<String>,
+    short_names: Vec<String>,
     defs: Vec<Item>,
 }
 
 impl Globals {
     pub fn new() -> Globals {
-        Globals { names: Vec::new(), defs: Vec::new() }
+        Globals {
+            names: Vec::new(),
+            short_names: Vec::new(),
+            defs: Vec::new(),
+        }
     }
 }
 
 pub fn type_check_all(globals: &mut Globals, programs: Vec<ast::Item>) {
     for item in &programs {
-        let (name, item) = type_check_function(globals, item);
+        let (name, short_name, item) = type_check_function(globals, item);
         println!("{}: {}", name, item.ty);
         globals.names.push(name);
+        if get_index(&globals.short_names, &short_name).is_none() {
+            globals.short_names.push(short_name);
+        }
         globals.defs.push(item);
     }
 
@@ -41,7 +49,7 @@ pub fn type_check_all(globals: &mut Globals, programs: Vec<ast::Item>) {
 fn type_check_function(
     globals: &Globals,
     fun: &ast::Item,
-) -> (String, Item) {
+) -> (String, String, Item) {
     for _ in &fun.associated {
         unimplemented!();
     }
@@ -57,6 +65,7 @@ fn type_check_function(
     let annotation = fun.annotation.as_ref().unwrap();
     let mut ty = convert_expr(
         &globals.names,
+        &globals.short_names,
         &Default::default(),
         annotation.typ.clone()
     );
@@ -68,21 +77,19 @@ fn type_check_function(
         if !annotation.is_post {
             panic!("Item {} has no definition", annotation.name);
         }
-        (annotation.name.clone(), Item { ty, def: None })
+        (
+            annotation.name.clone(),
+            annotation.name.clone(),
+            Item { ty, def: None },
+        )
     } else {
         let definition = fun.definition.as_ref().unwrap();
-        if annotation.name != definition.fname {
-            panic!(
-                "Annotation for {} was given alongside definition for {}",
-                annotation.name,
-                definition.fname,
-            );
-        }
         let var_names = &definition.vars;
         let param_num = var_names.len();
 
         let def = convert_expr(
             &globals.names,
+            &globals.short_names,
             &Context::new(&var_names),
             definition.body.clone(),
         );
@@ -97,7 +104,11 @@ fn type_check_function(
             type_check_expr(&globals.defs, &Context::new(&bindings), &def, &result);
         }
 
-        (definition.fname.clone(), Item { ty, def: Some((param_num, def)) })
+        (
+            annotation.name.clone(),
+            definition.fname.clone(),
+            Item { ty, def: Some((param_num, def)) },
+        )
     }
 }
 
@@ -105,6 +116,7 @@ fn type_check_function(
 enum Ident {
     Universe(usize),
     Global(usize),
+    Overload(usize),
     Local(usize),
 }
 
@@ -178,6 +190,9 @@ impl std::fmt::Display for Expr {
             Ident::Global(i) => {
                 write!(f, "g{}", i)?;
             },
+            Ident::Overload(i) => {
+                write!(f, "_g{}", i)?;
+            }
         }
         for ex in &self.tail {
             write!(f, " ")?;
@@ -257,6 +272,7 @@ fn get_index<T: PartialEq>(names: &[T], name: &T) -> Option<usize> {
 
 fn convert_expr(
     globals: &Vec<String>,
+    overloads: &Vec<String>,
     locals: &Context<String>,
     mut expr: ast::Expr,
 ) -> Expr {
@@ -265,7 +281,7 @@ fn convert_expr(
     while let ast::Expr::Arrow(ast::ArrowExpr { params, output }) = expr {
         for (name, ty) in params {
             arrow_params.push(
-                convert_expr(globals, &locals.push(&new_locals), ty)
+                convert_expr(globals, overloads, &locals.push(&new_locals), ty)
             );
             new_locals.push(name.unwrap_or_else(|| "_".into()));
         }
@@ -282,6 +298,8 @@ fn convert_expr(
             Ident::Local(id)
         } else if let Some(id) = get_index(globals, &alg.head) {
             Ident::Global(id)
+        } else if let Some(id) = get_index(globals, &alg.head) {
+            Ident::Overload(id)
         } else {
             if &alg.head[..1] != "U" {
                 panic!("Could not find term for identifier: {}", alg.head);
@@ -296,7 +314,7 @@ fn convert_expr(
     let tail = alg
         .tail
         .into_iter()
-        .map(|ex| convert_expr(globals, &locals, ex))
+        .map(|ex| convert_expr(globals, overloads, &locals, ex))
         .collect();
     Expr { arrow_params, head, tail }
 }
@@ -321,6 +339,7 @@ fn calculate_type(
     let (mut actual, mut expr_ctx_size) = match expr.head {
         Ident::Local(i) => (locals.value_from_index(i).clone(), i),
         Ident::Global(i) => (globals[i].ty.clone(), 0),
+        Ident::Overload(_) => unimplemented!(),
         Ident::Universe(l) => {
             if expr.tail.len() > 0 {
                 panic!("Cannot apply type to arguments");
