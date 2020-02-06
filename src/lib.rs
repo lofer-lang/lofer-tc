@@ -18,16 +18,18 @@ struct Item {
 
 pub struct Globals {
     names: Vec<String>,
-    short_names: Vec<String>,
     defs: Vec<Item>,
+    short_names: Vec<String>,
+    overloads: Vec<Vec<usize>>,
 }
 
 impl Globals {
     pub fn new() -> Globals {
         Globals {
             names: Vec::new(),
-            short_names: Vec::new(),
             defs: Vec::new(),
+            short_names: Vec::new(),
+            overloads: Vec::new(),
         }
     }
 }
@@ -36,9 +38,13 @@ pub fn type_check_all(globals: &mut Globals, programs: Vec<ast::Item>) {
     for item in &programs {
         let (name, short_name, item) = type_check_function(globals, item);
         println!("{}: {}", name, item.ty);
+        let index = globals.names.len();
         globals.names.push(name);
-        if get_index(&globals.short_names, &short_name).is_none() {
+        if let Some(i) = get_index(&globals.short_names, &short_name) {
+            globals.overloads[i].push(index);
+        } else {
             globals.short_names.push(short_name);
+            globals.overloads.push(vec![index]);
         }
         globals.defs.push(item);
     }
@@ -69,7 +75,18 @@ fn type_check_function(
         &Default::default(),
         annotation.typ.clone()
     );
-    sort_check_expr(&globals.defs, &Context::new(&[]), &ty);
+    if let Err(e) = sort_check_expr(
+        &globals.defs,
+        &globals.overloads,
+        &Context::new(&[]),
+        &mut ty,
+    ) {
+        panic!(
+            "Type check error during annotation of {}\n\n{}\n\n",
+            annotation.name,
+            e,
+        );
+    }
     // maybe we want to store both eval and non-eval versions?
     eval(&globals.defs, &mut ty, 0);
 
@@ -87,7 +104,7 @@ fn type_check_function(
         let var_names = &definition.vars;
         let param_num = var_names.len();
 
-        let def = convert_expr(
+        let mut def = convert_expr(
             &globals.names,
             &globals.short_names,
             &Context::new(&var_names),
@@ -101,7 +118,19 @@ fn type_check_function(
                 .drain(0..param_num)
                 .collect();
 
-            type_check_expr(&globals.defs, &Context::new(&bindings), &def, &result);
+            if let Err(e) = type_check_expr(
+                &globals.defs,
+                &globals.overloads,
+                &Context::new(&bindings),
+                &mut def,
+                &result,
+            ) {
+                panic!(
+                    "Type check error during definition of {}\n\n{}\n\n",
+                    definition.fname,
+                    e,
+                );
+            }
         }
 
         (
@@ -298,7 +327,7 @@ fn convert_expr(
             Ident::Local(id)
         } else if let Some(id) = get_index(globals, &alg.head) {
             Ident::Global(id)
-        } else if let Some(id) = get_index(globals, &alg.head) {
+        } else if let Some(id) = get_index(overloads, &alg.head) {
             Ident::Overload(id)
         } else {
             if &alg.head[..1] != "U" {
@@ -319,114 +348,188 @@ fn convert_expr(
     Expr { arrow_params, head, tail }
 }
 
+type CheckResult<T> = Result<T, String>;
+
+// also resolves overloads, thus the mutable input
 fn calculate_type(
     globals: &Vec<Item>,
+    overloads: &Vec<Vec<usize>>,
     locals: &Context<Expr>,
-    expr: &Expr,
-) -> Expr {
+    expr: &mut Expr,
+) -> CheckResult<Expr> {
     // process variables introduced by arrow expressions
     let mut new_locals = Vec::new();
-    for each in &expr.arrow_params {
+    for each in &mut expr.arrow_params {
         sort_check_expr(
             globals,
+            overloads,
             &locals.push(&new_locals),
             each,
-        );
+        )?;
         new_locals.push(each.clone());
     }
     let locals = locals.push(&new_locals);
-    // initialize with type of term in head position
-    let (mut actual, mut expr_ctx_size) = match expr.head {
-        Ident::Local(i) => (locals.value_from_index(i).clone(), i),
-        Ident::Global(i) => (globals[i].ty.clone(), 0),
-        Ident::Overload(_) => unimplemented!(),
-        Ident::Universe(l) => {
-            if expr.tail.len() > 0 {
-                panic!("Cannot apply type to arguments");
-            }
-            return Expr::universe(l+1);
-        },
+
+    let mut arg_actuals = Vec::with_capacity(expr.tail.len());
+    for arg in &mut expr.tail {
+        arg_actuals.push(calculate_type(
+            globals,
+            overloads,
+            &locals,
+            arg,
+        )?);
+    }
+
+    let overload = {
+        if let Ident::Overload(i) = expr.head {
+            Some(i)
+        } else {
+            None
+        }
     };
-    // check that arguments match the type expected in head position
-    let mut checked = 0;
-    let mut subbed = 0;
-    while checked < expr.tail.len() {
-        if actual.arrow_params.len() == 0 {
-            // @Performance lazy eval? save the full eval for later
-            actual = subst(
+    let mut ol_solution = None;
+    let mut new_head = None;
+    let num_defs = overload.map_or(1, |i| overloads[i].len());
+    for ol_i in 0..num_defs {
+        // initialize with type of term in head position
+        let (mut actual, mut expr_ctx_size) = match expr.head {
+            Ident::Local(i) => (locals.value_from_index(i).clone(), i),
+            Ident::Global(i) => (globals[i].ty.clone(), 0),
+            Ident::Overload(i) => (globals[overloads[i][ol_i]].ty.clone(), 0),
+            Ident::Universe(l) => {
+                // we clearly aren't overloading so it's fine to short circuit
+                if expr.tail.len() > 0 {
+                    return Err("Cannot apply type to arguments".into());
+                }
+                return Ok(Expr::universe(l+1));
+            },
+        };
+        // check that arguments match the type expected in head position
+        let mut checked = 0;
+        let mut subbed = 0;
+        let mut valid = true;
+        while checked < expr.tail.len() {
+            if actual.arrow_params.len() == 0 {
+                // @Performance lazy eval? save the full eval for later
+                actual = subst(
+                    &actual, expr_ctx_size, 0,
+                    &expr.tail[subbed..checked], locals.size(),
+                );
+                subbed = checked;
+                expr_ctx_size = locals.size();
+                eval(globals, &mut actual, locals.size());
+                if actual.arrow_params.len() == 0 {
+                    return Err(
+                        format!("Cannot apply type family to argument(s): {}",
+                            actual)
+                    );
+                }
+            }
+            // we want to check that the arguments have the type they are meant to
+            // have, i.e. expected is the thing that head takes, actual is the
+            // thing in tail
+            let arg_expected_base = actual.arrow_params.remove(0);
+
+            // @Memory maybe subst could take &mut param?
+            // @Performance skip this cloning operation if i is 0?
+            let mut arg_expected = subst(
+                &arg_expected_base, expr_ctx_size, 0,
+                &expr.tail[subbed..checked], locals.size(),
+            );
+            // @Performance that's a lot of eval
+            eval(globals, &mut arg_expected, locals.size());
+            let result = assert_type(
+                &expr.tail[checked],
+                &arg_actuals[checked],
+                &arg_expected,
+            );
+            if overload.is_some() {
+                if result.is_err() {
+                    valid = false;
+                    break;
+                }
+            } else {
+                result?;
+            }
+            checked += 1;
+        }
+        if valid {
+            if ol_solution.is_some() {
+                return Err("multiple valid overloads".into());
+            }
+            // return result of applying head to all given arguments
+            let mut actual = subst(
                 &actual, expr_ctx_size, 0,
                 &expr.tail[subbed..checked], locals.size(),
             );
-            subbed = checked;
-            expr_ctx_size = locals.size();
             eval(globals, &mut actual, locals.size());
-            if actual.arrow_params.len() == 0 {
-                panic!("Cannot apply type family to argument(s): {}",
-                       actual);
+            ol_solution = Some(actual);
+            if let Some(i) = overload {
+                new_head = Some(Ident::Global(overloads[i][ol_i]));
             }
         }
-        // the first parameter of the actual type is the expected type for
-        // the first argument
-        let arg_expected_base = actual.arrow_params.remove(0);
-
-        // @Memory maybe subst could take &mut param?
-        // @Performance skip this cloning operation if i is 0?
-        let mut arg_expected = subst(
-            &arg_expected_base, expr_ctx_size, 0,
-            &expr.tail[subbed..checked], locals.size(),
-        );
-        // @Performance that's a lot of eval
-        eval(globals, &mut arg_expected, locals.size());
-        type_check_expr(
-            globals,
-            &locals,
-            &expr.tail[checked],
-            &arg_expected,
-        );
-        checked += 1;
     }
 
-    // return result of applying head to all given arguments
-    actual = subst(
-        &actual, expr_ctx_size, 0,
-        &expr.tail[subbed..checked], locals.size(),
-    );
-    eval(globals, &mut actual, locals.size());
-    if expr.arrow_params.len() > 0 && actual.universe_level().is_none() {
-        panic!("Expected element of a universe (in result of arrow expression)");
+    if let Some(h) = new_head {
+        expr.head = h;
     }
-    return actual;
+
+    if ol_solution.is_none() {
+        if overload.is_some() {
+            return Err("no valid overloads".into());
+        } else {
+            // non-overload errors short circuit so we can't get here
+            unreachable!();
+        }
+    }
+    let ty = ol_solution.unwrap();
+
+    // one day this will be a valid way of discriminating overloads,
+    // just like any goal
+    if expr.arrow_params.len() > 0 && ty.universe_level().is_none() {
+        return Err(
+            "Expected element of a universe (in result of arrow expression)"
+            .into()
+        );
+    }
+    return Ok(ty);
 }
 
 fn sort_check_expr(
     globals: &Vec<Item>,
+    overloads: &Vec<Vec<usize>>,
     locals: &Context<Expr>,
-    expr: &Expr,
-) -> usize {
-    let actual = calculate_type(globals, locals, expr);
+    expr: &mut Expr,
+) -> CheckResult<usize> {
+    let actual = calculate_type(globals, overloads, locals, expr)?;
     if let Some(l) = actual.universe_level() {
-        l
+        Ok(l)
     } else {
-        panic!("Expected element of a universe");
+        return Err("Expected element of a universe".into());
     }
 }
 
 fn type_check_expr(
     globals: &Vec<Item>,
+    overloads: &Vec<Vec<usize>>,
     locals: &Context<Expr>,
-    expr: &Expr,
+    expr: &mut Expr,
     expected: &Expr,
-) {
-    let actual = calculate_type(globals, locals, expr);
-    assert_type(expr, &actual, expected);
+) -> CheckResult<()> {
+    let actual = calculate_type(globals, overloads, locals, expr)?;
+    assert_type(expr, &actual, expected)
 }
 
 
-fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) {
+fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) -> CheckResult<()> {
     if actual != expected {
-        panic!("\n\n{} has type:\n  {}\n\nbut it was expected to have type:\n  {}\n\n",
-               expr, actual, expected);
+        return Err(
+            format!(
+                "{} has type:\n  {}\n\nbut it was expected to have type:\n  {}",
+               expr, actual, expected)
+        );
     }
+    Ok(())
 }
 
 fn eval_on(globals: &Vec<Item>, xs: &mut Vec<Expr>, ctx_size: &mut usize, incr: bool) {

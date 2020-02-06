@@ -9,10 +9,10 @@ Mappable F = (A: Type) -> (B: Type) -> (A -> B) -> F A -> F B
 postulate Rec: (F: Type -> Type) -> Type
 postulate Rec_close: (F: Type -> Type) -> Mappable F -> \
   F (Rec F) -> Rec F
-Rec_close F map x = x
+close F map x = x
 postulate Rec_open: (F: Type -> Type) -> Mappable F -> \
   Rec F -> F (Rec F)
-Rec_open F map x = x
+open F map x = x
 
 Into: Type -> Type -> Type
 Into A T = T -> A
@@ -38,5 +38,5 @@ Rec_fold_step F map A m prev x = m (map (Rec F) A prev (Rec_open F map x))
 
 postulate Rec_fold: (F: Type -> Type) -> (map: Mappable F) -> \
   (A: Type) -> (F A -> A) -> Rec F -> A
-Rec_fold F map A m = fix (Rec F -> A) id (Rec_fold_step F map A m)
+fold F map A m = fix (Rec F -> A) id (Rec_fold_step F map A m)
 

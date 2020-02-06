@@ -8,7 +8,7 @@ Void: Type
 Void = (A: Type) -> A
 
 Void_case: (A: Type) -> Void -> A
-Void_case A x = x A
+case A x = x A
 
 Unit: Type
 Unit = (A: Type) -> A -> A
