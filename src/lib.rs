@@ -123,7 +123,7 @@ fn type_check_function(
                 &globals.overloads,
                 &Context::new(&bindings),
                 &mut def,
-                &result,
+                Some(&result),
             ) {
                 panic!(
                     "Type check error during definition of {}\n\n{}\n\n",
@@ -351,12 +351,19 @@ fn convert_expr(
 type CheckResult<T> = Result<T, String>;
 
 // also resolves overloads, thus the mutable input
-fn calculate_type(
+fn type_check_expr(
     globals: &Vec<Item>,
     overloads: &Vec<Vec<usize>>,
     locals: &Context<Expr>,
     expr: &mut Expr,
+    expected: Option<&Expr>,
 ) -> CheckResult<Expr> {
+    if let Ident::Overload(i) = expr.head {
+        if overloads[i].len() == 1 {
+            expr.head = Ident::Global(overloads[i][0]);
+        }
+    }
+
     // process variables introduced by arrow expressions
     let mut new_locals = Vec::new();
     for each in &mut expr.arrow_params {
@@ -372,11 +379,12 @@ fn calculate_type(
 
     let mut arg_actuals = Vec::with_capacity(expr.tail.len());
     for arg in &mut expr.tail {
-        arg_actuals.push(calculate_type(
+        arg_actuals.push(type_check_expr(
             globals,
             overloads,
             &locals,
             arg,
+            if let Ident::Overload(_) = expr.head { None } else { unimplemented!(); },
         )?);
     }
 
@@ -453,16 +461,28 @@ fn calculate_type(
             }
             checked += 1;
         }
+
+        // check/return result of applying head to all given arguments
+        let mut actual = subst(
+            &actual, expr_ctx_size, 0,
+            &expr.tail[subbed..checked], locals.size(),
+        );
+        eval(globals, &mut actual, locals.size());
+
+        if let Some(expected) = expected {
+            let result = assert_type(
+                expr,
+                &actual,
+                expected,
+            );
+            if result.is_err() {
+                valid = false;
+            }
+        }
         if valid {
             if ol_solution.is_some() {
                 return Err("multiple valid overloads".into());
             }
-            // return result of applying head to all given arguments
-            let mut actual = subst(
-                &actual, expr_ctx_size, 0,
-                &expr.tail[subbed..checked], locals.size(),
-            );
-            eval(globals, &mut actual, locals.size());
             ol_solution = Some(actual);
             if let Some(i) = overload {
                 new_head = Some(Ident::Global(overloads[i][ol_i]));
@@ -484,8 +504,6 @@ fn calculate_type(
     }
     let ty = ol_solution.unwrap();
 
-    // one day this will be a valid way of discriminating overloads,
-    // just like any goal
     if expr.arrow_params.len() > 0 && ty.universe_level().is_none() {
         return Err(
             "Expected element of a universe (in result of arrow expression)"
@@ -501,25 +519,15 @@ fn sort_check_expr(
     locals: &Context<Expr>,
     expr: &mut Expr,
 ) -> CheckResult<usize> {
-    let actual = calculate_type(globals, overloads, locals, expr)?;
+    // we could start using "Sort" as a goal or something, but it would be
+    // strange to encourage types and terms to have overloaded names...
+    let actual = type_check_expr(globals, overloads, locals, expr, None)?;
     if let Some(l) = actual.universe_level() {
         Ok(l)
     } else {
         return Err("Expected element of a universe".into());
     }
 }
-
-fn type_check_expr(
-    globals: &Vec<Item>,
-    overloads: &Vec<Vec<usize>>,
-    locals: &Context<Expr>,
-    expr: &mut Expr,
-    expected: &Expr,
-) -> CheckResult<()> {
-    let actual = calculate_type(globals, overloads, locals, expr)?;
-    assert_type(expr, &actual, expected)
-}
-
 
 fn assert_type(expr: &Expr, actual: &Expr, expected: &Expr) -> CheckResult<()> {
     if actual != expected {
