@@ -5,18 +5,23 @@ postulate return: (A: Type) -> A -> IO A
 return A x k = x
 
 postulate bind: (A: Type) -> (B: Type) -> (A -> IO B) -> IO A -> IO B
-bind A B f x k = f (x k)
+bind A B f x k = f (x k) k
 
 postulate abort: (A: Type) -> IO A
 
 IO_inconsistent: (A: Type) -> Mappable (Into (Unit -> IO A))
 IO_inconsistent A _ _ _ _ _ _ = abort A
 
-IO_frob: (A: Type) -> (IO A -> IO A) -> (Unit -> IO A) -> IO A
-IO_frob A f x = f (x id)
+-- IO is already capable of representing delayed computation
+IO_thunk: (A: Type) -> (Unit -> IO A) -> IO A
+thunk A x = bind Unit A x (return Unit id)
+
+IO_compose_thunk: (A: Type) -> (B: Type) -> \
+  (IO A -> IO B) -> (Unit -> IO A) -> IO B
+IO_compose_thunk A B f x = f (thunk A x)
 
 IO_fix: (A: Type) -> (IO A -> IO A) -> IO A
-IO_fix A f = fix (IO A) (IO_inconsistent A) (IO_frob A f)
+IO_fix A f = fix (IO A) (IO_inconsistent A) (IO_compose_thunk A A f)
 
 ---------------
 -- iteration
