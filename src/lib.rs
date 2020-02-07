@@ -485,7 +485,9 @@ fn type_check_expr(
                 &actual,
                 expected,
             );
-            if result.is_err() {
+            if overload.is_none() {
+                result?;
+            } else if result.is_err() {
                 valid = false;
             }
         }

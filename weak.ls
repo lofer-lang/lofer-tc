@@ -9,11 +9,14 @@ bind A B f x k = f (x k)
 
 postulate abort: (A: Type) -> IO A
 
-IO_inconsistent: (A: Type) -> Mappable (Into (IO A))
-IO_inconsistent A _ _ _ _ _ = abort A
+IO_inconsistent: (A: Type) -> Mappable (Into (Unit -> IO A))
+IO_inconsistent A _ _ _ _ _ _ = abort A
+
+IO_frob: (A: Type) -> (IO A -> IO A) -> (Unit -> IO A) -> IO A
+IO_frob A f x = f (x id)
 
 IO_fix: (A: Type) -> (IO A -> IO A) -> IO A
-IO_fix A = fix (IO A) (IO_inconsistent A)
+IO_fix A f = fix (IO A) (IO_inconsistent A) (IO_frob A f)
 
 ---------------
 -- iteration

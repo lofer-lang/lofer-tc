@@ -17,24 +17,24 @@ open F map x = x
 Into: Type -> Type -> Type
 Into A T = T -> A
 
-self_apply: (A: Type) -> (map: Mappable (Into A)) -> (A -> A) -> \
-  Rec (Into A) -> A
-self_apply A map f x = f (Rec_open (Into A) map x x)
+self_apply: (A: Type) -> (map: Mappable (Into (Unit -> A))) -> ((Unit -> A) -> A) -> \
+  Rec (Into (Unit -> A)) -> Unit -> A
+self_apply A map f x _ = f (Rec_open (Into (Unit -> A)) map x x)
 
 -- note fix does not actually use the map function
-fix: (A: Type) -> (map: Mappable (Into A)) -> (A -> A) -> A
-fix A map f = self_apply A map f (Rec_close (Into A) map (self_apply A map f))
+fix: (A: Type) -> (map: Mappable (Into (Unit -> A))) -> ((Unit -> A) -> A) -> A
+fix A map f = self_apply A map f (Rec_close (Into (Unit -> A)) map (self_apply A map f)) id
 
-currys_paradox: Mappable (Into Void) -> Void
-currys_paradox map = fix Void map (id Void)
+-- currys_paradox: Mappable (Into (Unit -> Void)) -> Void
+-- currys_paradox map = fix Void map (\x -> x id)
 
 -- Mappable (Into Void) was already absurd!
-currys_paradox_redundant: Mappable (Into Void) -> Void
-currys_paradox_redundant map = map Void Unit (const Unit id Void) (id Void) id
+-- currys_paradox_redundant: Mappable (Into Void) -> Void
+-- currys_paradox_redundant map = map Void Unit (const Unit id Void) (id Void) id
 
 Rec_fold_step: (F: Type -> Type) -> (map: Mappable F) -> \
-  (A: Type) -> (F A -> A) -> (Rec F -> A) -> Rec F -> A
-Rec_fold_step F map A m prev x = m (map (Rec F) A prev (Rec_open F map x))
+  (A: Type) -> (F A -> A) -> (Unit -> Rec F -> A) -> Rec F -> A
+Rec_fold_step F map A m prev x = m (map (Rec F) A (prev id) (Rec_open F map x))
 
 postulate Rec_fold: (F: Type -> Type) -> (map: Mappable F) -> \
   (A: Type) -> (F A -> A) -> Rec F -> A
