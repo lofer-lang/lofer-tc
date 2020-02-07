@@ -378,15 +378,6 @@ fn type_check_expr(
     let locals = locals.push(&new_locals);
 
     let mut arg_actuals = Vec::with_capacity(expr.tail.len());
-    for arg in &mut expr.tail {
-        arg_actuals.push(type_check_expr(
-            globals,
-            overloads,
-            &locals,
-            arg,
-            if let Ident::Overload(_) = expr.head { None } else { unimplemented!(); },
-        )?);
-    }
 
     let overload = {
         if let Ident::Overload(i) = expr.head {
@@ -446,18 +437,37 @@ fn type_check_expr(
             );
             // @Performance that's a lot of eval
             eval(globals, &mut arg_expected, locals.size());
-            let result = assert_type(
-                &expr.tail[checked],
-                &arg_actuals[checked],
-                &arg_expected,
-            );
+            // @Simplicity so many branches and things...
+            // the alternative is some code duplication, or just recalculate
+            // types every time, always using goals even from overloads (NP)
+            if checked >= arg_actuals.len() {
+                let maybe_arg_expected = {
+                    if overload.is_some() {
+                        None
+                    } else {
+                        Some(&arg_expected)
+                    }
+                };
+                // @Performance we don't actually use arg_actuals most of the
+                // time?
+                arg_actuals.push(type_check_expr(
+                    globals,
+                    overloads,
+                    &locals,
+                    &mut expr.tail[checked],
+                    maybe_arg_expected,
+                )?);
+            }
             if overload.is_some() {
+                let result = assert_type(
+                    &expr.tail[checked],
+                    &arg_actuals[checked],
+                    &arg_expected,
+                );
                 if result.is_err() {
                     valid = false;
                     break;
                 }
-            } else {
-                result?;
             }
             checked += 1;
         }
