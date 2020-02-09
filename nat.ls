@@ -11,10 +11,10 @@ map A B f mx = mx (Nat_Node B) (nothing B) (Nat_Node_map_method A B f)
 Nat: Type
 Nat = Rec Nat_Node
 
-zero: Nat
+Nat_zero: Nat
 zero = Rec_close Nat_Node Nat_Node_map (nothing Nat)
 
-suc: Nat -> Nat
+Nat_suc: Nat -> Nat
 suc x = Rec_close Nat_Node Nat_Node_map (just Nat x)
 
 pred: Nat -> Maybe Nat

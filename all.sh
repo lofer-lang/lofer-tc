@@ -19,7 +19,7 @@ do
 		weak.ls)
 			./target/debug/lofer-lang prelude.ls rec.ls data.ls eq.ls $i || exit
 			;;
-		overload-test.ls | fix-test.ls)
+		overload-test.ls | fix-test.ls | int.ls)
 			./target/debug/lofer-lang prelude.ls rec.ls data.ls nat.ls eq.ls $i || exit
 			;;
 		*)
