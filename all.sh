@@ -1,29 +1,25 @@
 #!/bin/sh
-for i in `ls *.ls`
+
+./target/debug/lofer-lang proto.ls || exit
+
+for i in church-list.ls inverse.ls test.ls type-in-type.ls
 do
-	case $i in
-		prelude.ls)
-			;;
-		proto.ls)
-			./target/debug/lofer-lang $i || exit
-			;;
-		negative_extras.ls | ind-safety-theorem.ls | inductive-church.ls)
-			./target/debug/lofer-lang prelude.ls negative.ls $i || exit
-			;;
-		mutual-rec.ls)
-			./target/debug/lofer-lang prelude.ls rec.ls $i || exit
-			;;
-		nat.ls | list.ls)
-			./target/debug/lofer-lang prelude.ls rec.ls data.ls $i || exit
-			;;
-		weak.ls)
-			./target/debug/lofer-lang prelude.ls rec.ls data.ls eq.ls $i || exit
-			;;
-		overload-test.ls | fix-test.ls | int.ls)
-			./target/debug/lofer-lang prelude.ls rec.ls data.ls nat.ls eq.ls $i || exit
-			;;
-		*)
-			./target/debug/lofer-lang prelude.ls $i || exit
-			;;
-	esac
+	./target/debug/lofer-lang prelude.ls $i || exit
 done
+
+for i in negative_extras.ls ind-safety-theorem.ls inductive-church.ls
+do
+	./target/debug/lofer-lang prelude.ls negative.ls $i || exit
+done
+
+./target/debug/lofer-lang prelude.ls rec.ls mutual-rec.ls || exit
+
+for i in overload-test.ls fix-test.ls
+do
+	./target/debug/lofer-lang prelude.ls rec.ls data.ls nat.ls list.ls eq.ls $i || exit
+done
+
+./target/debug/lofer-lang prelude.ls rec.ls data.ls eq.ls weak.ls
+
+./target/debug/lofer-lang prelude.ls rec.ls signed.ls data.ls nat.ls int.ls rat.ls eq.ls num-tests.ls
+
