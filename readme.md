@@ -5,75 +5,52 @@ Lofer
 Lofer is a dependently typed functional language that combines the simplicity
 of Scheme with the expressiveness of Agda/Coq.
 
-The project was originally intended to be part of a grander dependently typed
-_procedural_ programming language, however such a language would be so
-complicated that it ought to be explored from the bottom up, probably starting
-with agda-internalized models first.
+Over the last 2 years this project has iterated a lot; the current focus is on
+developing a real alternative to Agda that is much simpler, and much faster.
+I also have interest in a computational alternative to Cubical TT that uses
+traditional identity types/Leibniz equality.
 
-I have since remade it around the concept of postulates with computation rules,
-making the implementation simultaneously simpler and more general: the only
-builtin types are now pi types and universes!
+Notable features:
+- predicativity (`(C: Type) -> C` is a Type not a Kind)
+- function overloading
+- postulates with optional definitions (untyped lambda calculus is possible)
+- strict evaluation order
 
-The language also uses strict evaluation, which has already had an impact on my
-understanding of functional programming, but this may change depending on how
-difficult it is to use church encodings with strict evaluation.
-
-Like most experimental dependently typed languages, this language has none of
-the quality of life feature that make Agda or Coq usable and sound:
-- no inference/implicit parameters
-- no instance variables
+Being very young, many things are possible but currently not implemented:
+- very bad error messages
+- no inference/implicit parameters [strong priority]
+- no instance variables [planning on using default arguments instead]
+- no mixfix operators
 - no case/auto tactics
 - no pattern matching
 - no recursion (you need to introduce a fixpoint postulate using the usual
   definition)
 - no inductive data types!
-- no universe levels/universe consistency checks
 - no termination checks, (in the case that you do introduce a fixpoint)
 - no lambda unification... functions with different names are never equal
   without assuming extensionality
-- no lambdas or with/where semantics! this may change once I learn what I want
-  to learn about strict evaluation.
+- no lambdas or with/where semantics!
+- no iterative build (may never be necessary)
 
-beyond this the current implementation also has abysmal error messages, with
-no reference to line numbers/columns, and fully evaluated, anonymized
-identifiers.
-
-`f A B x y = y x` might complain with something like
-"x2 has type x0 but was expected to have type x0 -> x1 x4"
-
-this means that if you are interested in real proof assistance or dependently
-typed programming, agda should be preferred, (or whatever interactive proof
-assistant suits your fancy) however, this language is particularly well suited
-to foundational experiments for figuring out new alternatives to the features
-listed above.
-
-In short the purpose of this language is to allow one to add exotic postulates,
-such as type-level representations of 'constructive recursion', and attempt to
-prove their inconsistency as rapidly as possible.
-
-At some point I may add quality of life features such as inductive data types
-or pattern matching, but I would be particularly interested in implementing
-these as syntax sugars rather than explicit language objects.
-
-I may also add features related to writing full type eliminators for pure
-calculus of constructions, should I find something that can't be represented as
-a type-level postulate.
+If you are interested in real proof assistance or dependently typed
+programming, agda should be preferred, (or whatever interactive proof assistant
+suits your fancy) however, this language is already well suited to foundational
+experiments for figuring out new alternatives to the features listed above.
 
 Program
 =======
 
-The program currently parses a single file, type checking each line in the
-context of the previous lines.
+The program currently parses a sequence of files, type checking each line in
+the context of the previous lines.
 It does not execute any functions unless they appear in the type declarations
 of other functions.
 
-To use the program, run `cargo run -- "file"`
+To use the program, run `cargo run -- "file1" "file2" [...]`
 
 It will then print the types of each function that successfully type checks,
 along with a single error/success message.
 
-If there is an error in one function the program will stop altogether, though
-with better error handling it might be able to continue in the future.
+If there is an error in one function the program will stop altogether.
 
 Language
 ========
@@ -131,7 +108,7 @@ Given an annotation and a definition, the type checker determines both of their
 types, and compares them. An error can occur in any of the following
 conditions:
 - the annotation has no type (a function was applied to the wrong type)
-- the annotation isn't of type `Type`
+- the annotation isn't of type `Type` or `Kind` (etc.)
 - the annotation cannot be evaluated (a type was somehow applied to arguments)
 additionally if the term is not declared to be a postulate, the following
 conditions also trigger an error:
@@ -150,16 +127,19 @@ Functions can have dependent types, `f : (x: A) -> B(x)`
 Function evaluation also evaluates types: `(f y) : B(y)` assuming that y has
 type `A`
 
-Arrow expressions immediately have the type `Type`, but won't type check unless
-each parameter along with the final output check as having the type `Type`
+Arrow expressions will have the same type/universe level as their output, which
+must be a type and not a simpler term. Each parameter must also be a universe
+but not necessarily of the same level as the output, this allows for easy
+impredicative encoding and polymorphism.
 
-`Type` has the type `Type`, which is apparently inconsistent.
+`Type` is an alias for `U0`, an element of `U1`, which is itself an element of
+`U2`, etc.
 
 Finally postulates are assumed to have the type given, which can generate
 absurd expressions that may eventually cause a runtime error.
 
 ```
-f: (A: Type) -> A -> Type
+postulate f: (A: Type) -> A -> Type
 f x = x Type
 ```
 
